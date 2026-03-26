@@ -9,13 +9,15 @@ MAX_RECOMMENDATIONS = 5
 
 def _format_combo(combo: tuple) -> str:
     """將單一推薦組合格式化為可讀字串。"""
-    low_score, low_count, high_score, high_count = combo
+    low_score, low_count, high_score, high_count, is_doubled = combo
+    tag = "（加倍）" if is_doubled else "（不加倍）"
     if low_count == 0 or low_score == 0:
-        return f"接 {high_count} 個 {high_score}分 任務（共 {high_count * high_score} 分）"
+        total = high_count * high_score
+        return f"接 {high_count} 個 {high_score}分 任務，共 {total} 分 {tag}"
     total = low_count * low_score + high_count * high_score
     return (
-        f"接 {high_count} 個 {high_score}分 + {low_count} 個 {low_score}分 任務"
-        f"（共 {total} 分）"
+        f"接 {high_count} 個 {high_score}分 + {low_count} 個 {low_score}分 任務，"
+        f"共 {total} 分 {tag}"
     )
 
 
@@ -52,16 +54,20 @@ def format_reply(result: dict) -> str:
         for threshold, name, gap in higher_titles:
             lines.append(f"  ▸ {name}（{threshold}分）：還差 {gap} 分")
 
-    # 推薦組合（名額為 0 時不顯示）
+    # 推薦組合（名額為 0 時不顯示）從最高稱號開始，略過拿不到的
     if remaining_slots > 0 and higher_titles:
-        lines.append("")
-        lines.append("💡 任務推薦：")
-        for threshold, name, gap in higher_titles:
-            lines.append(f"【{name} — 還差 {gap} 分】")
-            combos = recommendations.get(name)
-            if combos is None:
-                lines.append("  ⚠️ 剩餘名額不足，本週期無法達成")
-            else:
+        # 找出最高可達成的稱號（recommendations 不為 None）
+        achievable = [
+            (threshold, name, gap)
+            for threshold, name, gap in reversed(higher_titles)
+            if recommendations.get(name) is not None
+        ]
+        if achievable:
+            lines.append("")
+            lines.append("💡 任務推薦：")
+            for threshold, name, gap in achievable:
+                combos = recommendations.get(name)
+                lines.append(f"【{name} — 還差 {gap} 分】")
                 for combo in combos[:MAX_RECOMMENDATIONS]:
                     lines.append(f"  • {_format_combo(combo)}")
 
@@ -85,8 +91,11 @@ def format_help() -> str:
         "  小貓 232 4\n"
         "  （表示 ID 為「小貓」，目前累計總分 232 分，已完成 4 次任務）\n"
         "\n"
-        "🎮 可選任務分數：\n"
-        "  25、28、30、50、56、60 分\n"
+        "🎮 任務說明：\n"
+        "  基本任務分數：25、28、30 分\n"
+        "  每個任務可選擇是否加倍（×2）：50、56、60 分\n"
+        "  每週期每人最多承接 24 個任務\n"
+        "  （不推薦 25 分以下的任務）\n"
         "\n"
         "🏅 稱號級距：\n"
         "  0–499 分：無稱號\n"

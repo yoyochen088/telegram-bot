@@ -51,33 +51,57 @@ def recommend_combinations(
     current_score: int,
     target_score: int,
     remaining_slots: int,
-) -> list[tuple[int, int, int, int]] | None:
+) -> list[tuple[int, int, int, int, bool]] | None:
     """
     針對單一目標稱號，計算混合任務推薦組合。
-    回傳 list of (low_score, low_count, high_score, high_count)，
+    回傳 list of (low_score, low_count, high_score, high_count, is_doubled)，
     或 None 表示剩餘名額不足以達成。
     """
     need = target_score - current_score
     if need <= 0:
         return []
 
-    seen: set[tuple[int, int, int, int]] = set()
-    results: list[tuple[int, int, int, int]] = []
+    seen: set[tuple[int, int, int, int, bool]] = set()
+    results: list[tuple[int, int, int, int, bool]] = []
 
-    for high_score in sorted(HIGH_SCORES, reverse=True):  # 60, 56, 50
+    # 一般任務（不加倍）
+    NORMAL_LOW = [25, 28, 30]
+    NORMAL_HIGH = [25, 28, 30]
+    for high_score in sorted(NORMAL_HIGH, reverse=True):
         max_high = min(remaining_slots, ceil(need / high_score))
         for high_count in range(0, max_high + 1):
             remain = need - high_count * high_score
             if remain <= 0:
-                combo = (0, 0, high_score, high_count)
+                combo = (0, 0, high_score, high_count, False)
                 if combo not in seen:
                     seen.add(combo)
                     results.append(combo)
             else:
-                for low_score in sorted(LOW_SCORES, reverse=True):  # 30, 28, 25
+                for low_score in sorted(NORMAL_LOW, reverse=True):
                     low_count = ceil(remain / low_score)
                     if low_count + high_count <= remaining_slots:
-                        combo = (low_score, low_count, high_score, high_count)
+                        combo = (low_score, low_count, high_score, high_count, False)
+                        if combo not in seen:
+                            seen.add(combo)
+                            results.append(combo)
+
+    # 加倍任務
+    DOUBLED_LOW = [50, 56, 60]
+    DOUBLED_HIGH = [50, 56, 60]
+    for high_score in sorted(DOUBLED_HIGH, reverse=True):
+        max_high = min(remaining_slots, ceil(need / high_score))
+        for high_count in range(0, max_high + 1):
+            remain = need - high_count * high_score
+            if remain <= 0:
+                combo = (0, 0, high_score, high_count, True)
+                if combo not in seen:
+                    seen.add(combo)
+                    results.append(combo)
+            else:
+                for low_score in sorted(DOUBLED_LOW, reverse=True):
+                    low_count = ceil(remain / low_score)
+                    if low_count + high_count <= remaining_slots:
+                        combo = (low_score, low_count, high_score, high_count, True)
                         if combo not in seen:
                             seen.add(combo)
                             results.append(combo)
