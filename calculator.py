@@ -54,62 +54,49 @@ def recommend_combinations(
 ) -> list[tuple[int, int, int, int, bool]] | None:
     """
     針對單一目標稱號，計算混合任務推薦組合。
-    回傳 list of (low_score, low_count, high_score, high_count, is_doubled)，
-    或 None 表示剩餘名額不足以達成。
+    回傳 list of (score_a, count_a, score_b, count_b, is_doubled)，
+    依總次數升序排列，或 None 表示剩餘名額不足以達成。
     """
     need = target_score - current_score
     if need <= 0:
         return []
 
+    NORMAL = [30, 28, 25]   # 不加倍，由高到低
+    DOUBLED = [60, 56, 50]  # 加倍，由高到低
+
     seen: set[tuple[int, int, int, int, bool]] = set()
     results: list[tuple[int, int, int, int, bool]] = []
 
-    # 一般任務（不加倍）
-    NORMAL_LOW = [25, 28, 30]
-    NORMAL_HIGH = [25, 28, 30]
-    for high_score in sorted(NORMAL_HIGH, reverse=True):
-        max_high = min(remaining_slots, ceil(need / high_score))
-        for high_count in range(0, max_high + 1):
-            remain = need - high_count * high_score
-            if remain <= 0:
-                combo = (0, 0, high_score, high_count, False)
-                if combo not in seen:
-                    seen.add(combo)
-                    results.append(combo)
-            else:
-                for low_score in sorted(NORMAL_LOW, reverse=True):
-                    low_count = ceil(remain / low_score)
-                    if low_count + high_count <= remaining_slots:
-                        combo = (low_score, low_count, high_score, high_count, False)
+    def _enumerate(scores: list[int], is_doubled: bool) -> None:
+        # 枚舉所有 (score_a, count_a, score_b, count_b) 組合
+        # score_a >= score_b，count_a 從 0 開始
+        for i, sa in enumerate(scores):
+            for sb in scores[i:]:  # sb <= sa
+                max_a = min(remaining_slots, ceil(need / sa))
+                for ca in range(0, max_a + 1):
+                    remain = need - ca * sa
+                    if remain <= 0:
+                        # 只需要 sa 就夠了
+                        combo = (0, 0, sa, ca, is_doubled)
+                        if combo not in seen:
+                            seen.add(combo)
+                            results.append(combo)
+                        break
+                    cb = ceil(remain / sb)
+                    if ca + cb <= remaining_slots:
+                        combo = (sb, cb, sa, ca, is_doubled)
                         if combo not in seen:
                             seen.add(combo)
                             results.append(combo)
 
-    # 加倍任務
-    DOUBLED_LOW = [50, 56, 60]
-    DOUBLED_HIGH = [50, 56, 60]
-    for high_score in sorted(DOUBLED_HIGH, reverse=True):
-        max_high = min(remaining_slots, ceil(need / high_score))
-        for high_count in range(0, max_high + 1):
-            remain = need - high_count * high_score
-            if remain <= 0:
-                combo = (0, 0, high_score, high_count, True)
-                if combo not in seen:
-                    seen.add(combo)
-                    results.append(combo)
-            else:
-                for low_score in sorted(DOUBLED_LOW, reverse=True):
-                    low_count = ceil(remain / low_score)
-                    if low_count + high_count <= remaining_slots:
-                        combo = (low_score, low_count, high_score, high_count, True)
-                        if combo not in seen:
-                            seen.add(combo)
-                            results.append(combo)
+    _enumerate(NORMAL, False)
+    _enumerate(DOUBLED, True)
 
     if not results:
         return None
 
-    results.sort(key=lambda c: c[1] + c[3])
+    # 依總次數升序，次數相同則依總分升序（越接近 need 越好）
+    results.sort(key=lambda c: (c[1] + c[3], c[0] * c[1] + c[2] * c[3]))
     return results
 
 
