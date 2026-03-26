@@ -74,9 +74,10 @@ async def _send_result(update_or_query, data: dict, is_edit: bool = False) -> No
     if data["title"] == "王者花匠" or data["remaining_slots"] == 0:
         return
 
+    # 倒序：從最高稱號到最低，只列可達成的
     achievable = [
         name
-        for _, name, _ in data["higher_titles"]
+        for _, name, _ in reversed(data["higher_titles"])
         if data["recommendations"].get(name) is not None
     ]
     if not achievable:
@@ -95,10 +96,7 @@ async def _send_result(update_or_query, data: dict, is_edit: bool = False) -> No
         buttons.append([InlineKeyboardButton(f"🎯 {name}", callback_data=payload)])
 
     keyboard = InlineKeyboardMarkup(buttons)
-    if is_edit:
-        await update_or_query.message.reply_text("請選擇本期目標稱號：", reply_markup=keyboard)
-    else:
-        await update_or_query.message.reply_text("請選擇本期目標稱號：", reply_markup=keyboard)
+    await update_or_query.message.reply_text("請選擇本期目標稱號：", reply_markup=keyboard)
 
 
 async def handle_help(update: Update, context) -> None:

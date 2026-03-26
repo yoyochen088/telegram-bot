@@ -46,7 +46,7 @@ def format_summary(result: dict) -> str:
     if higher_titles:
         lines.append("")
         lines.append("🎯 距離各稱號差距：")
-        for threshold, name, gap in higher_titles:
+        for threshold, name, gap in reversed(higher_titles):
             lines.append(f"  ▸ {name}（{threshold}分）：還差 {gap} 分")
 
     return "\n".join(lines)
