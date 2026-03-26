@@ -21,57 +21,68 @@ def _format_combo(combo: tuple) -> str:
     )
 
 
-def format_reply(result: dict) -> str:
-    """將 compute_result 的結果格式化為繁體中文回覆字串。"""
+def format_summary(result: dict) -> str:
+    """回覆基本摘要：ID、總分、稱號、剩餘任務、各稱號差距。"""
     id_ = result["id"]
     score = result["score"]
     title = result["title"]
     remaining_slots = result["remaining_slots"]
     higher_titles = result["higher_titles"]
-    recommendations = result["recommendations"]
 
-    lines = []
+    lines = [
+        f"👤 ID：{id_}",
+        f"📊 目前累計總分：{score} 分（{title}）",
+    ]
 
-    # 基本資訊
-    lines.append(f"👤 ID：{id_}")
-    lines.append(f"📊 目前累計總分：{score} 分（{title}）")
-
-    # 王者花匠特殊情境
     if title == "王者花匠":
         lines.append(f"🏆 恭喜！{id_} 已達最高稱號「王者花匠」！")
         return "\n".join(lines)
 
-    # 剩餘名額
     if remaining_slots == 0:
-        lines.append("⚠️ 本週期任務名額已用盡（已完成 24 個任務）")
+        lines.append("⚠️ 本期任務名額已用盡（已完成 24 個任務）")
     else:
-        lines.append(f"📋 本週期剩餘名額：{remaining_slots} 個")
+        lines.append(f"📋 本期剩餘任務：{remaining_slots} 個")
 
-    # 距離各稱號差距
     if higher_titles:
         lines.append("")
         lines.append("🎯 距離各稱號差距：")
         for threshold, name, gap in higher_titles:
             lines.append(f"  ▸ {name}（{threshold}分）：還差 {gap} 分")
 
-    # 推薦組合（名額為 0 時不顯示）從最高稱號開始，略過拿不到的
-    if remaining_slots > 0 and higher_titles:
-        # 找出最高可達成的稱號（recommendations 不為 None）
-        achievable = [
-            (threshold, name, gap)
-            for threshold, name, gap in reversed(higher_titles)
-            if recommendations.get(name) is not None
-        ]
-        if achievable:
-            lines.append("")
-            lines.append("💡 任務推薦：")
-            for threshold, name, gap in achievable:
-                combos = recommendations.get(name)
-                lines.append(f"【{name} — 還差 {gap} 分】")
-                for combo in combos[:MAX_RECOMMENDATIONS]:
-                    lines.append(f"  • {_format_combo(combo)}")
+    return "\n".join(lines)
+
+
+def format_recommendation(result: dict, target: str, combos: list | None) -> str:
+    """回覆指定目標稱號的推薦組合。"""
+    id_ = result["id"]
+    score = result["score"]
+    remaining_slots = result["remaining_slots"]
+
+    # 找出目標稱號的差距
+    gap = next(
+        (g for _, name, g in result["higher_titles"] if name == target), None
+    )
+
+    lines = [
+        f"👤 ID：{id_}  📊 總分：{score} 分  📋 剩餘任務：{remaining_slots} 個",
+        f"",
+        f"🎯 目標：{target}（還差 {gap} 分）",
+        f"",
+        "💡 推薦接法：",
+    ]
+
+    if combos is None:
+        lines.append("  ⚠️ 剩餘任務不足，本期無法達成此稱號")
+    else:
+        for combo in combos[:MAX_RECOMMENDATIONS]:
+            lines.append(f"  • {_format_combo(combo)}")
 
     return "\n".join(lines)
+
+
+# 保留舊介面相容性
+def format_reply(result: dict) -> str:
+    return format_summary(result)
 
 
 def format_help() -> str:
@@ -80,22 +91,22 @@ def format_help() -> str:
         "🌸 公會競賽分數計算 Bot\n"
         "\n"
         "📌 功能說明：\n"
-        "  輸入你的 ID、目前累計總分與已完成任務次數，\n"
-        "  Bot 會顯示目前稱號、距離各更高稱號還差多少分，\n"
-        "  並推薦剩餘名額可接的任務組合。\n"
+        "  輸入任務分數，Bot 會累計本期總分並推薦最省接法。\n"
         "\n"
-        "📝 輸入格式：\n"
-        "  {ID} {累計總分} {次數}\n"
+        "📝 輸入方式：\n"
+        "  【單筆模式】直接輸入分數，例如：60\n"
+        "    → Bot 自動累加本期分數，每次輸入都會更新\n"
+        "  【完整模式】{ID} {累計總分} {次數}，例如：小貓 528 4\n"
+        "    → 直接用指定數值計算\n"
         "\n"
-        "📖 範例：\n"
-        "  小貓 232 4\n"
-        "  （表示 ID 為「小貓」，目前累計總分 232 分，已完成 4 次任務）\n"
+        "🔄 指令：\n"
+        "  /reset — 清除本期累計紀錄，重新開始\n"
+        "  /help  — 顯示此說明\n"
         "\n"
         "🎮 任務說明：\n"
         "  基本任務分數：25、28、30 分\n"
         "  每個任務可選擇是否加倍（×2）：50、56、60 分\n"
-        "  每週期每人最多承接 24 個任務\n"
-        "  （不推薦 25 分以下的任務）\n"
+        "  每期每人最多承接 24 個任務\n"
         "\n"
         "🏅 稱號級距：\n"
         "  0–499 分：無稱號\n"
