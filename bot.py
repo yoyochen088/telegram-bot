@@ -12,9 +12,11 @@ callback_data 格式：
   技能切換：  x_{score}_{count}_{title_idx}_{bonus}
 """
 
+import asyncio
 import logging
 import os
 
+from aiohttp import web
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -244,19 +246,37 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback))
 
-    # Render Web Service 模式：使用 Webhook
     webhook_url = os.environ.get("WEBHOOK_URL")
     port = int(os.environ.get("PORT", 8443))
 
     if webhook_url:
-        # Render 上用 Webhook 模式
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            webhook_url=f"{webhook_url}/webhook",
-            url_path="/webhook",
-            health_check_path="/",
-        )
+        # Render Web Service：webhook + aiohttp health check
+        async def health(request):
+            return web.Response(text="OK")
+
+        async def run_all():
+            # 啟動 aiohttp health check server
+            http_app = web.Application()
+            http_app.router.add_get("/", health)
+            runner = web.AppRunner(http_app)
+            await runner.setup()
+            site = web.TCPSite(runner, "0.0.0.0", port)
+            await site.start()
+            logger.info(f"Health check server started on port {port}")
+
+            # 啟動 webhook（用不同 port）
+            await app.initialize()
+            await app.bot.set_webhook(f"{webhook_url}/webhook")
+            await app.start()
+            await app.updater.start_webhook(
+                listen="0.0.0.0",
+                port=port + 1,
+                url_path="/webhook",
+            )
+            # 持續運行
+            await asyncio.Event().wait()
+
+        asyncio.run(run_all())
     else:
         # 本機開發用 polling 模式
         app.run_polling()

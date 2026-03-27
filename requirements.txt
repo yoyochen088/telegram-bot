@@ -1,4 +1,5 @@
 python-telegram-bot[webhooks]>=20.0
+aiohttp
 hypothesis
 pytest
 pytest-asyncio
