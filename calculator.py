@@ -55,7 +55,11 @@ def recommend_combinations(
 ) -> list[tuple[int, int, int, int, bool]] | None:
     """
     針對單一目標稱號，計算混合任務推薦組合。
-    bonus: 0=無加成, 1=+1技能(56→57,60→61), 2=+2技能(56→58,60→62), 3=兩者都有
+    bonus 為 4-bit 旗標：
+      bit0 = 56+1（57分）
+      bit1 = 56+2（58分）
+      bit2 = 60+1（61分）
+      bit3 = 60+2（62分）
     回傳 list of (score_a, count_a, score_b, count_b, is_doubled)，
     依總次數升序排列，或 None 表示剩餘名額不足以達成。
     """
@@ -65,15 +69,15 @@ def recommend_combinations(
 
     NORMAL = [30, 28, 25]
 
-    # 依 bonus 決定加倍任務的實際分數
-    if bonus == 0:
-        DOUBLED = [60, 56, 50]
-    elif bonus == 1:
-        DOUBLED = [61, 57, 50]   # 56+1=57, 60+1=61
-    elif bonus == 2:
-        DOUBLED = [62, 58, 50]   # 56+2=58, 60+2=62
-    else:  # bonus == 3，兩種都有，取較高的
-        DOUBLED = [62, 58, 61, 57, 50]
+    # 依 bonus 旗標決定加倍任務的實際可選分數
+    doubled_scores = [50]  # 50 分永遠可選
+    if bonus & 1:  doubled_scores.append(57)   # 56+1
+    if bonus & 2:  doubled_scores.append(58)   # 56+2
+    if not (bonus & 3):  doubled_scores.append(56)  # 無 56 加成時用原始 56
+    if bonus & 4:  doubled_scores.append(61)   # 60+1
+    if bonus & 8:  doubled_scores.append(62)   # 60+2
+    if not (bonus & 12): doubled_scores.append(60)  # 無 60 加成時用原始 60
+    DOUBLED = sorted(set(doubled_scores), reverse=True)
 
     seen: set[tuple[int, int, int, int, bool]] = set()
     results: list[tuple[int, int, int, int, bool]] = []

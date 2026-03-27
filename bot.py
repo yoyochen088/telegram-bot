@@ -92,28 +92,31 @@ def _build_title_keyboard(data: dict) -> InlineKeyboardMarkup | None:
 
 
 def _build_bonus_keyboard(score: int, count: int, title_idx: int, bonus: int) -> InlineKeyboardMarkup:
-    """建立技能加成選擇按鈕（可複選）。"""
-    # +1 技能切換按鈕
-    has_p1 = bool(bonus & 1)
-    has_p2 = bool(bonus & 2)
+    """建立技能加成選擇按鈕（4個獨立選項）。
+    bonus 為 4-bit 旗標：bit0=56+1, bit1=56+2, bit2=60+1, bit3=60+2
+    """
+    options = [
+        (0, "56+1（57分）"),
+        (1, "56+2（58分）"),
+        (2, "60+1（61分）"),
+        (3, "60+2（62分）"),
+    ]
+    buttons = []
+    for bit, label in options:
+        checked = bool(bonus & (1 << bit))
+        new_bonus = bonus ^ (1 << bit)
+        cb = f"x_{score}_{count}_{title_idx}_{new_bonus}"
+        buttons.append([InlineKeyboardButton(
+            f"{'✅' if checked else '⬜'} {label}",
+            callback_data=cb
+        )])
 
-    new_bonus_p1 = bonus ^ 1  # 切換 bit0
-    new_bonus_p2 = bonus ^ 2  # 切換 bit1
-
-    btn_p1 = InlineKeyboardButton(
-        f"{'✅' if has_p1 else '⬜'} +1 技能（57、61分）",
-        callback_data=f"x_{score}_{count}_{title_idx}_{new_bonus_p1}"
-    )
-    btn_p2 = InlineKeyboardButton(
-        f"{'✅' if has_p2 else '⬜'} +2 技能（58、62分）",
-        callback_data=f"x_{score}_{count}_{title_idx}_{new_bonus_p2}"
-    )
     btn_confirm = InlineKeyboardButton(
         "✔️ 計算",
         callback_data=f"b_{score}_{count}_{title_idx}_{bonus}"
     )
-
-    return InlineKeyboardMarkup([[btn_p1], [btn_p2], [btn_confirm]])
+    buttons.append([btn_confirm])
+    return InlineKeyboardMarkup(buttons)
 
 
 async def _send_result(update: Update, data: dict) -> None:

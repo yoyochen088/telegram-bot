@@ -61,8 +61,12 @@ def format_recommendation(result: dict, target: str, combos: list | None, bonus:
         (g for _, name, g in result["higher_titles"] if name == target), None
     )
 
-    bonus_labels = {0: "", 1: "（+1 技能）", 2: "（+2 技能）", 3: "（+1 & +2 技能）"}
-    bonus_tag = bonus_labels.get(bonus, "")
+    bonus_parts = []
+    if bonus & 1:  bonus_parts.append("56+1")
+    if bonus & 2:  bonus_parts.append("56+2")
+    if bonus & 4:  bonus_parts.append("60+1")
+    if bonus & 8:  bonus_parts.append("60+2")
+    bonus_tag = f"（技能加成：{', '.join(bonus_parts)}）" if bonus_parts else ""
 
     lines = [
         f"👤 ID：{id_}  📊 總分：{score} 分  📋 剩餘任務：{remaining_slots} 個",
