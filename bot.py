@@ -5,6 +5,11 @@ bot.py — Bot 主程式
   1. 單一數字（如 60）：加入本期累計，自動計算
   2. {ID} {累計總分} {次數}：完整格式，直接計算
   /reset：清除本期累計紀錄
+
+callback_data 格式：
+  稱號選擇：  t_{score}_{count}_{title_idx}
+  技能確認：  b_{score}_{count}_{title_idx}_{bonus}
+  技能切換：  x_{score}_{count}_{title_idx}_{bonus}
 """
 
 import logging
@@ -20,7 +25,7 @@ from telegram.ext import (
     filters,
 )
 
-from calculator import compute_result
+from calculator import compute_result, recommend_combinations
 from formatter import format_help, format_recommendation, format_summary
 
 logger = logging.getLogger(__name__)
@@ -28,8 +33,10 @@ logger = logging.getLogger(__name__)
 KEY_SCORES = "scores"
 KEY_ID = "uid"
 
-# 稱號索引對照（用於短 callback_data）
 TITLE_NAMES = ["無稱號", "青銅花匠", "白銀花匠", "黃金花匠", "大師花匠", "王者花匠"]
+
+# bonus 位元：bit0 = +1技能, bit1 = +2技能
+BONUS_LABELS = {0: "無加成", 1: "+1 技能", 2: "+2 技能", 3: "+1 & +2 技能"}
 
 
 def parse_full(text: str) -> tuple | str:
@@ -57,8 +64,8 @@ def _get_display_name(update: Update) -> str:
     return user.username or user.first_name or str(user.id)
 
 
-def _build_keyboard(data: dict) -> InlineKeyboardMarkup | None:
-    """建立目標稱號選擇按鈕，callback_data 格式：{score}_{count}_{title_index}"""
+def _build_title_keyboard(data: dict) -> InlineKeyboardMarkup | None:
+    """建立目標稱號選擇按鈕。callback_data: t_{score}_{count}_{title_idx}"""
     if data["title"] == "王者花匠" or data["remaining_slots"] == 0:
         return None
 
@@ -76,15 +83,40 @@ def _build_keyboard(data: dict) -> InlineKeyboardMarkup | None:
     buttons = []
     for name in achievable:
         title_idx = TITLE_NAMES.index(name)
-        cb = f"{score}_{count}_{title_idx}"  # 最短格式，遠低於 64 bytes
+        cb = f"t_{score}_{count}_{title_idx}"
         buttons.append([InlineKeyboardButton(f"🎯 {name}", callback_data=cb)])
 
     return InlineKeyboardMarkup(buttons)
 
 
+def _build_bonus_keyboard(score: int, count: int, title_idx: int, bonus: int) -> InlineKeyboardMarkup:
+    """建立技能加成選擇按鈕（可複選）。"""
+    # +1 技能切換按鈕
+    has_p1 = bool(bonus & 1)
+    has_p2 = bool(bonus & 2)
+
+    new_bonus_p1 = bonus ^ 1  # 切換 bit0
+    new_bonus_p2 = bonus ^ 2  # 切換 bit1
+
+    btn_p1 = InlineKeyboardButton(
+        f"{'✅' if has_p1 else '⬜'} +1 技能（57、61分）",
+        callback_data=f"x_{score}_{count}_{title_idx}_{new_bonus_p1}"
+    )
+    btn_p2 = InlineKeyboardButton(
+        f"{'✅' if has_p2 else '⬜'} +2 技能（58、62分）",
+        callback_data=f"x_{score}_{count}_{title_idx}_{new_bonus_p2}"
+    )
+    btn_confirm = InlineKeyboardButton(
+        "✔️ 計算",
+        callback_data=f"b_{score}_{count}_{title_idx}_{bonus}"
+    )
+
+    return InlineKeyboardMarkup([[btn_p1], [btn_p2], [btn_confirm]])
+
+
 async def _send_result(update: Update, data: dict) -> None:
     await update.message.reply_text(format_summary(data))
-    keyboard = _build_keyboard(data)
+    keyboard = _build_title_keyboard(data)
     if keyboard:
         await update.message.reply_text("請選擇本期目標稱號：", reply_markup=keyboard)
 
@@ -148,22 +180,49 @@ async def handle_callback(update: Update, context) -> None:
         query = update.callback_query
         await query.answer()
 
-        # 解析短格式 callback_data：{score}_{count}_{title_index}
         parts = query.data.split("_")
-        score = int(parts[0])
-        count = int(parts[1])
-        title_idx = int(parts[2])
-        target = TITLE_NAMES[title_idx]
+        action = parts[0]
 
-        # 從 user_data 取 ID，若無則用 Telegram 名稱
-        id_ = context.user_data.get(KEY_ID) or (
-            query.from_user.username or query.from_user.first_name or str(query.from_user.id)
-        )
+        if action == "t":
+            # 選完稱號 → 顯示技能加成選項
+            score, count, title_idx = int(parts[1]), int(parts[2]), int(parts[3])
+            target = TITLE_NAMES[title_idx]
+            keyboard = _build_bonus_keyboard(score, count, title_idx, bonus=0)
+            await query.edit_message_text(
+                f"🎯 目標：{target}\n\n請選擇是否有競賽技能加成（可複選）：",
+                reply_markup=keyboard
+            )
 
-        data = compute_result(id_, score, count)
-        combos = data["recommendations"].get(target)
-        reply = format_recommendation(data, target, combos)
-        await query.edit_message_text(reply)
+        elif action == "x":
+            # 切換技能選項（更新按鈕狀態）
+            score, count, title_idx, bonus = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
+            target = TITLE_NAMES[title_idx]
+            keyboard = _build_bonus_keyboard(score, count, title_idx, bonus)
+            await query.edit_message_text(
+                f"🎯 目標：{target}\n\n請選擇是否有競賽技能加成（可複選）：",
+                reply_markup=keyboard
+            )
+
+        elif action == "b":
+            # 確認計算
+            score, count, title_idx, bonus = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
+            target = TITLE_NAMES[title_idx]
+
+            id_ = context.user_data.get(KEY_ID) or (
+                query.from_user.username or query.from_user.first_name or str(query.from_user.id)
+            )
+
+            data = compute_result(id_, score, count)
+            # 用 bonus 重新計算推薦組合
+            gap_entry = next((g for _, n, g in data["higher_titles"] if n == target), None)
+            if gap_entry is not None:
+                remaining_slots = data["remaining_slots"]
+                combos = recommend_combinations(score, score + gap_entry, remaining_slots, bonus)
+            else:
+                combos = None
+
+            reply = format_recommendation(data, target, combos, bonus)
+            await query.edit_message_text(reply)
 
     except Exception as e:
         logger.error("handle_callback error: %s", e, exc_info=True)
@@ -184,7 +243,22 @@ def main() -> None:
     app.add_handler(CommandHandler("reset", handle_reset))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback))
-    app.run_polling()
+
+    # Render Web Service 模式：使用 Webhook
+    webhook_url = os.environ.get("WEBHOOK_URL")
+    port = int(os.environ.get("PORT", 8443))
+
+    if webhook_url:
+        # Render 上用 Webhook 模式
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            webhook_url=f"{webhook_url}/webhook",
+            url_path="/webhook",
+        )
+    else:
+        # 本機開發用 polling 模式
+        app.run_polling()
 
 
 if __name__ == "__main__":

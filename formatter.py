@@ -9,15 +9,14 @@ MAX_RECOMMENDATIONS = 5
 
 def _format_combo(combo: tuple) -> str:
     """將單一推薦組合格式化為可讀字串。"""
-    low_score, low_count, high_score, high_count, is_doubled = combo
-    tag = "（加倍）" if is_doubled else "（不加倍）"
+    low_score, low_count, high_score, high_count, _ = combo
     if low_count == 0 or low_score == 0:
         total = high_count * high_score
-        return f"接 {high_count} 個 {high_score}分 任務，共 {total} 分 {tag}"
+        return f"接 {high_count} 個 {high_score}分 任務，共 {total} 分"
     total = low_count * low_score + high_count * high_score
     return (
         f"接 {high_count} 個 {high_score}分 + {low_count} 個 {low_score}分 任務，"
-        f"共 {total} 分 {tag}"
+        f"共 {total} 分"
     )
 
 
@@ -52,22 +51,24 @@ def format_summary(result: dict) -> str:
     return "\n".join(lines)
 
 
-def format_recommendation(result: dict, target: str, combos: list | None) -> str:
+def format_recommendation(result: dict, target: str, combos: list | None, bonus: int = 0) -> str:
     """回覆指定目標稱號的推薦組合。"""
     id_ = result["id"]
     score = result["score"]
     remaining_slots = result["remaining_slots"]
 
-    # 找出目標稱號的差距
     gap = next(
         (g for _, name, g in result["higher_titles"] if name == target), None
     )
 
+    bonus_labels = {0: "", 1: "（+1 技能）", 2: "（+2 技能）", 3: "（+1 & +2 技能）"}
+    bonus_tag = bonus_labels.get(bonus, "")
+
     lines = [
         f"👤 ID：{id_}  📊 總分：{score} 分  📋 剩餘任務：{remaining_slots} 個",
-        f"",
-        f"🎯 目標：{target}（還差 {gap} 分）",
-        f"",
+        "",
+        f"🎯 目標：{target}（還差 {gap} 分）{bonus_tag}",
+        "",
         "💡 推薦接法：",
     ]
 

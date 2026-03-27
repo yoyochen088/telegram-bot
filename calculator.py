@@ -51,9 +51,11 @@ def recommend_combinations(
     current_score: int,
     target_score: int,
     remaining_slots: int,
+    bonus: int = 0,
 ) -> list[tuple[int, int, int, int, bool]] | None:
     """
     針對單一目標稱號，計算混合任務推薦組合。
+    bonus: 0=無加成, 1=+1技能(56→57,60→61), 2=+2技能(56→58,60→62), 3=兩者都有
     回傳 list of (score_a, count_a, score_b, count_b, is_doubled)，
     依總次數升序排列，或 None 表示剩餘名額不足以達成。
     """
@@ -61,22 +63,28 @@ def recommend_combinations(
     if need <= 0:
         return []
 
-    NORMAL = [30, 28, 25]   # 不加倍，由高到低
-    DOUBLED = [60, 56, 50]  # 加倍，由高到低
+    NORMAL = [30, 28, 25]
+
+    # 依 bonus 決定加倍任務的實際分數
+    if bonus == 0:
+        DOUBLED = [60, 56, 50]
+    elif bonus == 1:
+        DOUBLED = [61, 57, 50]   # 56+1=57, 60+1=61
+    elif bonus == 2:
+        DOUBLED = [62, 58, 50]   # 56+2=58, 60+2=62
+    else:  # bonus == 3，兩種都有，取較高的
+        DOUBLED = [62, 58, 61, 57, 50]
 
     seen: set[tuple[int, int, int, int, bool]] = set()
     results: list[tuple[int, int, int, int, bool]] = []
 
     def _enumerate(scores: list[int], is_doubled: bool) -> None:
-        # 枚舉所有 (score_a, count_a, score_b, count_b) 組合
-        # score_a >= score_b，count_a 從 0 開始
         for i, sa in enumerate(scores):
-            for sb in scores[i:]:  # sb <= sa
+            for sb in scores[i:]:
                 max_a = min(remaining_slots, ceil(need / sa))
                 for ca in range(0, max_a + 1):
                     remain = need - ca * sa
                     if remain <= 0:
-                        # 只需要 sa 就夠了
                         combo = (0, 0, sa, ca, is_doubled)
                         if combo not in seen:
                             seen.add(combo)
@@ -95,7 +103,6 @@ def recommend_combinations(
     if not results:
         return None
 
-    # 依總次數升序，次數相同則依總分升序（越接近 need 越好）
     results.sort(key=lambda c: (c[1] + c[3], c[0] * c[1] + c[2] * c[3]))
     return results
 
