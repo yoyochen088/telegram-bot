@@ -12,6 +12,8 @@ callback_data 格式：
   技能切換：  x_{score}_{count}_{title_idx}_{bonus}
 """
 
+import asyncio
+import json
 import logging
 import os
 
@@ -248,16 +250,39 @@ def main() -> None:
     port = int(os.environ.get("PORT", 8443))
 
     if webhook_url:
-        # Render Web Service：run_webhook 內建支援多路由，/ 回應 health check
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            webhook_url=f"{webhook_url}/webhook",
-            url_path="webhook",
-            secret_token=None,
-        )
+        async def run_all():
+            from aiohttp import web
+
+            async def health(request):
+                return web.Response(text="OK")
+
+            async def webhook_handler(request):
+                data = await request.json()
+                from telegram import Update as TGUpdate
+                update = TGUpdate.de_json(data, app.bot)
+                await app.process_update(update)
+                return web.Response(text="OK")
+
+            # 先啟動 HTTP server，讓 Render health check 通過
+            http_app = web.Application()
+            http_app.router.add_get("/", health)
+            http_app.router.add_post("/webhook", webhook_handler)
+            runner = web.AppRunner(http_app)
+            await runner.setup()
+            site = web.TCPSite(runner, "0.0.0.0", port)
+            await site.start()
+            logger.info(f"HTTP server started on port {port}")
+
+            # 再初始化 Bot
+            await app.initialize()
+            await app.bot.set_webhook(f"{webhook_url}/webhook")
+            await app.start()
+            logger.info("Bot started")
+
+            await asyncio.Event().wait()
+
+        asyncio.run(run_all())
     else:
-        # 本機開發用 polling 模式
         app.run_polling()
 
 
