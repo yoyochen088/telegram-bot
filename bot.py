@@ -255,6 +255,7 @@ def main() -> None:
             port=port,
             webhook_url=f"{webhook_url}/webhook",
             url_path="/webhook",
+            health_check_path="/",
         )
     else:
         # 本機開發用 polling 模式
