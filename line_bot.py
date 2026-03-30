@@ -210,7 +210,7 @@ async def handle_line_event(event: MessageEvent, api: MessagingApi) -> None:
         except ValueError:
             await api.reply_message(ReplyMessageRequest(
                 reply_token=reply_token,
-                messages=[TextMessage(text="❌ 格式錯誤！\n完整格式：{ID} {累計總分} {次數}，例如：小貓 528 4\n單筆格式：直接輸入分數，例如：60")]
+                messages=[TextMessage(text="❌ 格式錯誤！\n完整格式：{ID} {累計總分} {次數}，例如：蜜桃香檳 528 4\n單筆格式：直接輸入分數，例如：60")]
             ))
             return
 
@@ -228,7 +228,7 @@ async def handle_line_event(event: MessageEvent, api: MessagingApi) -> None:
     # 無法識別的輸入
     await api.reply_message(ReplyMessageRequest(
         reply_token=reply_token,
-        messages=[TextMessage(text="❌ 格式錯誤！\n完整格式：{ID} {累計總分} {次數}，例如：小貓 528 4\n單筆格式：直接輸入分數，例如：60\n輸入「說明」查看完整說明")]
+        messages=[TextMessage(text="❌ 格式錯誤！\n完整格式：{ID} {累計總分} {次數}，例如：蜜桃香檳 528 4\n單筆格式：直接輸入分數，例如：60\n輸入「說明」查看完整說明")]
     ))
 
 
