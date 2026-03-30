@@ -9,15 +9,15 @@ MAX_RECOMMENDATIONS = 5
 
 def _format_combo(combo: tuple) -> str:
     """將單一推薦組合格式化為可讀字串。"""
-    low_score, low_count, high_score, high_count, _ = combo
-    if low_count == 0 or low_score == 0:
-        total = high_count * high_score
-        return f"接 {high_count} 個 {high_score}分 任務，共 {total} 分"
-    total = low_count * low_score + high_count * high_score
-    return (
-        f"接 {high_count} 個 {high_score}分 + {low_count} 個 {low_score}分 任務，"
-        f"共 {total} 分"
-    )
+    sa, ca, sb, cb = combo
+    if cb == 0 or sb == 0:
+        total = ca * sa
+        return f"接 {ca} 個 {sa}分 任務，共 {total} 分"
+    if ca == 0 or sa == 0:
+        total = cb * sb
+        return f"接 {cb} 個 {sb}分 任務，共 {total} 分"
+    total = ca * sa + cb * sb
+    return f"接 {cb} 個 {sb}分 + {ca} 個 {sa}分 任務，共 {total} 分"
 
 
 def format_summary(result: dict) -> str:
