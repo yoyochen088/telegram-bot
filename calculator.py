@@ -92,8 +92,10 @@ def recommend_combinations(
                 ca = remaining_slots - cb
                 total = ca * sa + cb * sb
                 if total >= need:
-                    # 正規化：確保 sa <= sb，且去除 0 個的情況用單一分數表示
-                    if ca == 0:
+                    # 當 sa == sb，合併成單一分數
+                    if sa == sb:
+                        combo = (sa, ca + cb, 0, 0)
+                    elif ca == 0:
                         combo = (sb, cb, 0, 0)
                     elif cb == 0:
                         combo = (sa, ca, 0, 0)
