@@ -194,7 +194,7 @@ async def handle_callback(update: Update, context) -> None:
             target = TITLE_NAMES[title_idx]
             keyboard = _build_bonus_keyboard(score, count, title_idx, bonus=0)
             await query.edit_message_text(
-                f"🎯 目標：{target}\n\n請選擇是否有競賽技能加成（可複選）：",
+                f"🎯 目標：{target}\n\n請選擇是否有競賽技能加成（可複選）：\n若沒有加成，請直接按「✔️ 計算」",
                 reply_markup=keyboard
             )
 
@@ -204,7 +204,7 @@ async def handle_callback(update: Update, context) -> None:
             target = TITLE_NAMES[title_idx]
             keyboard = _build_bonus_keyboard(score, count, title_idx, bonus)
             await query.edit_message_text(
-                f"🎯 目標：{target}\n\n請選擇是否有競賽技能加成（可複選）：",
+                f"🎯 目標：{target}\n\n請選擇是否有競賽技能加成（可複選）：\n若沒有加成，請直接按「✔️ 計算」",
                 reply_markup=keyboard
             )
 
@@ -255,6 +255,10 @@ def main() -> None:
     if webhook_url:
         async def run_all():
             from aiohttp import web
+            from line_bot import create_line_handler
+
+            line_secret = os.environ.get("LINE_CHANNEL_SECRET", "")
+            line_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 
             async def health(request):
                 return web.Response(text="OK")
@@ -270,6 +274,10 @@ def main() -> None:
             http_app = web.Application()
             http_app.router.add_get("/", health)
             http_app.router.add_post("/webhook", webhook_handler)
+            if line_secret and line_token:
+                http_app.router.add_post("/line-webhook", create_line_handler(line_secret, line_token))
+                logger.info("LINE webhook registered at /line-webhook")
+
             runner = web.AppRunner(http_app)
             await runner.setup()
             site = web.TCPSite(runner, "0.0.0.0", port)
