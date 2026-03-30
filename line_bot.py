@@ -4,6 +4,7 @@ line_bot.py — LINE Bot 處理邏輯
 使用 PostbackAction 讓按鈕點擊不顯示內部指令文字。
 """
 
+import asyncio
 import logging
 
 from linebot.v3 import WebhookParser
@@ -93,7 +94,7 @@ async def _process_postback(data: str, user_id: str, reply_token: str, api: Mess
     if action == "title":
         target, score, count = parts[1], int(parts[2]), int(parts[3])
         quick_reply = _build_bonus_quick_reply(target, score, count, 0)
-        await api.reply_message(ReplyMessageRequest(
+        await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(
                 text=f"🎯 目標：{target}\n\n是否有競賽技能加成？（可複選）\n若沒有加成，請直接按「✔️直接計算」",
@@ -104,7 +105,7 @@ async def _process_postback(data: str, user_id: str, reply_token: str, api: Mess
     elif action == "bonus":
         target, score, count, bonus = parts[1], int(parts[2]), int(parts[3]), int(parts[4])
         quick_reply = _build_bonus_quick_reply(target, score, count, bonus)
-        await api.reply_message(ReplyMessageRequest(
+        await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(
                 text=f"🎯 目標：{target}\n\n是否有競賽技能加成？（可複選）\n若沒有加成，請直接按「✔️直接計算」",
@@ -122,7 +123,7 @@ async def _process_postback(data: str, user_id: str, reply_token: str, api: Mess
         else:
             combos = None
         reply = format_recommendation(data_result, target, combos, bonus)
-        await api.reply_message(ReplyMessageRequest(
+        await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(text=reply)]
         ))
@@ -152,7 +153,7 @@ async def handle_line_event(event, api: MessagingApi) -> None:
 
     if text in ("/reset", "重置", "/重置"):
         state[KEY_SCORES] = []
-        await api.reply_message(ReplyMessageRequest(
+        await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(text="✅ 已清除本期累計紀錄，可以重新開始輸入。")]
         ))
@@ -160,7 +161,7 @@ async def handle_line_event(event, api: MessagingApi) -> None:
 
     if text in ("/help", "/start", "說明", "help"):
         from formatter import format_help
-        await api.reply_message(ReplyMessageRequest(
+        await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(text=format_help())]
         ))
@@ -170,7 +171,7 @@ async def handle_line_event(event, api: MessagingApi) -> None:
     if text.lstrip("-").isdigit():
         score_input = int(text)
         if score_input <= 0:
-            await api.reply_message(ReplyMessageRequest(
+            await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
                 reply_token=reply_token,
                 messages=[TextMessage(text="❌ 分數必須為正整數")]
             ))
@@ -188,7 +189,7 @@ async def handle_line_event(event, api: MessagingApi) -> None:
         quick_reply = _build_title_quick_reply(data, total, count)
         msg_text = f"➕ 已記錄 {score_input} 分\n📝 本期累計：{detail} = {total} 分（共 {count} 次）\n\n{summary}"
 
-        await api.reply_message(ReplyMessageRequest(
+        await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(text=msg_text, quick_reply=quick_reply)]
         ))
@@ -203,7 +204,7 @@ async def handle_line_event(event, api: MessagingApi) -> None:
             if score < 0 or not (0 <= count <= 24):
                 raise ValueError
         except ValueError:
-            await api.reply_message(ReplyMessageRequest(
+            await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
                 reply_token=reply_token,
                 messages=[TextMessage(text="❌ 格式錯誤！\n完整格式：{ID} {累計總分} {次數}，例如：蜜桃香檳 528 4\n單筆格式：直接輸入分數，例如：60")]
             ))
@@ -213,13 +214,13 @@ async def handle_line_event(event, api: MessagingApi) -> None:
         data = compute_result(id_, score, count)
         summary = format_summary(data)
         quick_reply = _build_title_quick_reply(data, score, count)
-        await api.reply_message(ReplyMessageRequest(
+        await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(text=summary, quick_reply=quick_reply)]
         ))
         return
 
-    await api.reply_message(ReplyMessageRequest(
+    await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
         reply_token=reply_token,
         messages=[TextMessage(text="❌ 格式錯誤！\n完整格式：{ID} {累計總分} {次數}，例如：蜜桃香檳 528 4\n單筆格式：直接輸入分數，例如：60\n輸入「說明」查看完整說明")]
     ))
