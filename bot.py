@@ -302,6 +302,12 @@ def main() -> None:
 
             asyncio.create_task(keep_alive())
             await asyncio.Event().wait()
+
+        try:
+            asyncio.run(run_all())
+        except Exception as e:
+            logger.error(f"Fatal error: {e}", exc_info=True)
+            raise
     else:
         app.run_polling()
 
