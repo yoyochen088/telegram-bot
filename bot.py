@@ -101,7 +101,11 @@ def _build_bonus_keyboard(score: int, count: int, title_idx: int, bonus: int) ->
         (2, "60+1（61分）"),
         (3, "60+2（62分）"),
     ]
-    buttons = []
+    btn_confirm = InlineKeyboardButton(
+        "✔️ 直接計算",
+        callback_data=f"b_{score}_{count}_{title_idx}_{bonus}"
+    )
+    buttons = [[btn_confirm]]
     for bit, label in options:
         checked = bool(bonus & (1 << bit))
         new_bonus = bonus ^ (1 << bit)
@@ -110,12 +114,6 @@ def _build_bonus_keyboard(score: int, count: int, title_idx: int, bonus: int) ->
             f"{'✅' if checked else '⬜'} {label}",
             callback_data=cb
         )])
-
-    btn_confirm = InlineKeyboardButton(
-        "✔️ 計算",
-        callback_data=f"b_{score}_{count}_{title_idx}_{bonus}"
-    )
-    buttons.append([btn_confirm])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -194,7 +192,7 @@ async def handle_callback(update: Update, context) -> None:
             target = TITLE_NAMES[title_idx]
             keyboard = _build_bonus_keyboard(score, count, title_idx, bonus=0)
             await query.edit_message_text(
-                f"🎯 目標：{target}\n\n請選擇是否有競賽技能加成（可複選）：\n若沒有加成，請直接按「✔️ 計算」",
+                f"🎯 目標：{target}\n\n是否有競賽技能加成？（可複選）\n若沒有加成，請直接按「✔️ 直接計算」",
                 reply_markup=keyboard
             )
 
@@ -204,7 +202,7 @@ async def handle_callback(update: Update, context) -> None:
             target = TITLE_NAMES[title_idx]
             keyboard = _build_bonus_keyboard(score, count, title_idx, bonus)
             await query.edit_message_text(
-                f"🎯 目標：{target}\n\n請選擇是否有競賽技能加成（可複選）：\n若沒有加成，請直接按「✔️ 計算」",
+                f"🎯 目標：{target}\n\n是否有競賽技能加成？（可複選）\n若沒有加成，請直接按「✔️ 直接計算」",
                 reply_markup=keyboard
             )
 

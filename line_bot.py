@@ -66,7 +66,9 @@ def _build_bonus_quick_reply(target: str, score: int, count: int, bonus: int) ->
         (2, "60+1"),
         (3, "60+2"),
     ]
-    items = []
+    items = [QuickReplyItem(
+        action=MessageAction(label="✔️直接計算", text=f"__calc__{target}__{score}__{count}__{bonus}")
+    )]
     for bit, label in options:
         checked = "✅" if (bonus & (1 << bit)) else "⬜"
         new_bonus = bonus ^ (1 << bit)
@@ -76,9 +78,6 @@ def _build_bonus_quick_reply(target: str, score: int, count: int, bonus: int) ->
                 text=f"__bonus__{target}__{score}__{count}__{new_bonus}"
             )
         ))
-    items.append(QuickReplyItem(
-        action=MessageAction(label="✔️ 計算", text=f"__calc__{target}__{score}__{count}__{bonus}")
-    ))
     return QuickReply(items=items)
 
 
@@ -105,7 +104,7 @@ async def handle_line_event(event: MessageEvent, api: MessagingApi) -> None:
         await api.reply_message(ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(
-                text=f"🎯 目標：{target}\n\n請選擇是否有競賽技能加成（可複選）：",
+                text=f"🎯 目標：{target}\n\n是否有競賽技能加成？（可複選）\n若沒有加成，請直接按「✔️直接計算」",
                 quick_reply=quick_reply
             )]
         ))
@@ -122,7 +121,7 @@ async def handle_line_event(event: MessageEvent, api: MessagingApi) -> None:
         await api.reply_message(ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(
-                text=f"🎯 目標：{target}\n\n請選擇是否有競賽技能加成（可複選）：",
+                text=f"🎯 目標：{target}\n\n是否有競賽技能加成？（可複選）\n若沒有加成，請直接按「✔️直接計算」",
                 quick_reply=quick_reply
             )]
         ))
