@@ -55,61 +55,50 @@ def recommend_combinations(
 ) -> list[tuple[int, int, int, int]] | None:
     """
     針對單一目標稱號，計算混合任務推薦組合。
+    目標：恰好用完 remaining_slots 個任務，總分 >= need，且總分最低（成本最低）。
     bonus 為 4-bit 旗標：
       bit0 = 56+1（57分）, bit1 = 56+2（58分）
       bit2 = 60+1（61分）, bit3 = 60+2（62分）
-
-    任務分數（一般）：14, 21, 23, 25, 28, 30
-    任務分數（加倍）：28, 42, 46, 50, 56/57/58, 60/61/62
-
     回傳 list of (score_a, count_a, score_b, count_b)，
-    優先以最低總分（最低成本）達標，去除重複組合，
     或 None 表示剩餘名額不足以達成。
     """
     need = target_score - current_score
     if need <= 0:
         return []
 
-    # 一般任務（不加倍），由低到高
+    # 一般任務（不加倍）
     NORMAL = [14, 21, 23, 25, 28, 30]
 
     # 加倍任務，依 bonus 旗標決定實際分數
-    doubled_base = []
-    doubled_base.append(28)   # 14×2
-    doubled_base.append(42)   # 21×2
-    doubled_base.append(46)   # 23×2
-    doubled_base.append(50)   # 25×2
-    if bonus & 1:   doubled_base.append(57)   # 56+1
-    elif bonus & 2: doubled_base.append(58)   # 56+2
-    else:           doubled_base.append(56)   # 原始 56
-    if bonus & 4:   doubled_base.append(61)   # 60+1
-    elif bonus & 8: doubled_base.append(62)   # 60+2
-    else:           doubled_base.append(60)   # 原始 60
-    DOUBLED = sorted(set(doubled_base))  # 由低到高
+    doubled_base = [28, 42, 46, 50]
+    if bonus & 1:   doubled_base.append(57)
+    elif bonus & 2: doubled_base.append(58)
+    else:           doubled_base.append(56)
+    if bonus & 4:   doubled_base.append(61)
+    elif bonus & 8: doubled_base.append(62)
+    else:           doubled_base.append(60)
+    DOUBLED = sorted(set(doubled_base))
 
-    # 合併所有可用分數（去重），由低到高
     ALL_SCORES = sorted(set(NORMAL + DOUBLED))
 
     seen: set[tuple[int, int, int, int]] = set()
     results: list[tuple[int, int, int, int]] = []
 
-    # 枚舉所有兩種分數的組合 (sa, sb)，sa <= sb
+    # 枚舉所有兩種分數的組合 (sa <= sb)，恰好用完 remaining_slots 個任務
     for i, sa in enumerate(ALL_SCORES):
         for sb in ALL_SCORES[i:]:
-            # 固定 sa 的數量，從 0 開始，sb 補足
-            max_b = min(remaining_slots, ceil(need / sb))
-            for cb in range(1, max_b + 1):
-                remain = need - cb * sb
-                if remain <= 0:
-                    # 只需要 sb 就夠了
-                    combo = (sb, cb, 0, 0)
-                    if combo not in seen:
-                        seen.add(combo)
-                        results.append(combo)
-                    break
-                ca = ceil(remain / sa)
-                if ca + cb <= remaining_slots:
-                    combo = (sa, ca, sb, cb)
+            # cb 從 0 到 remaining_slots，ca = remaining_slots - cb
+            for cb in range(0, remaining_slots + 1):
+                ca = remaining_slots - cb
+                total = ca * sa + cb * sb
+                if total >= need:
+                    # 正規化：確保 sa <= sb，且去除 0 個的情況用單一分數表示
+                    if ca == 0:
+                        combo = (sb, cb, 0, 0)
+                    elif cb == 0:
+                        combo = (sa, ca, 0, 0)
+                    else:
+                        combo = (sa, ca, sb, cb)
                     if combo not in seen:
                         seen.add(combo)
                         results.append(combo)
@@ -117,7 +106,7 @@ def recommend_combinations(
     if not results:
         return None
 
-    # 排序：優先總分最低（成本最低），次要總次數最少
+    # 排序：總分最低（成本最低）優先，次要總次數
     results.sort(key=lambda c: (c[0]*c[1] + c[2]*c[3], c[1] + c[3]))
     return results
 
