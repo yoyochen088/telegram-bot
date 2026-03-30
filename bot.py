@@ -288,9 +288,20 @@ def main() -> None:
             await app.start()
             logger.info("Bot started")
 
-            await asyncio.Event().wait()
+            # 每 10 分鐘 ping 自己，防止 Render 免費版 sleep
+            async def keep_alive():
+                import aiohttp as _aiohttp
+                while True:
+                    await asyncio.sleep(600)
+                    try:
+                        async with _aiohttp.ClientSession() as session:
+                            await session.get(f"{webhook_url}/")
+                        logger.info("Keep-alive ping sent")
+                    except Exception as e:
+                        logger.warning(f"Keep-alive ping failed: {e}")
 
-        asyncio.run(run_all())
+            asyncio.create_task(keep_alive())
+            await asyncio.Event().wait()
     else:
         app.run_polling()
 
