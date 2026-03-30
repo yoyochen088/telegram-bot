@@ -248,7 +248,7 @@ def create_line_handler(channel_secret: str, channel_access_token: str):
             logger.error("LINE webhook parse error: %s", e)
             return web.Response(status=400, text="Bad Request")
 
-        async with ApiClient(configuration) as api_client:
+        with ApiClient(configuration) as api_client:
             api = MessagingApi(api_client)
             for event in events:
                 if isinstance(event, MessageEvent):
