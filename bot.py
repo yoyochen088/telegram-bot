@@ -8,8 +8,8 @@ bot.py — Bot 主程式
 
 callback_data 格式：
   稱號選擇：  t_{score}_{count}_{title_idx}
-  技能確認：  b_{score}_{count}_{title_idx}_{bonus}
-  技能切換：  x_{score}_{count}_{title_idx}_{bonus}
+  進階確認：  b_{score}_{count}_{title_idx}_{bonus}
+  進階切換：  x_{score}_{count}_{title_idx}_{bonus}
 """
 
 import asyncio
@@ -37,8 +37,8 @@ KEY_ID = "uid"
 
 TITLE_NAMES = ["無稱號", "青銅花匠", "白銀花匠", "黃金花匠", "大師花匠", "王者花匠"]
 
-# bonus 位元：bit0 = +1技能, bit1 = +2技能
-BONUS_LABELS = {0: "無加成", 1: "+1 技能", 2: "+2 技能", 3: "+1 & +2 技能"}
+# bonus 位元：bit0 = +1進階, bit1 = +2進階
+BONUS_LABELS = {0: "無加成", 1: "+1 進階", 2: "+2 進階", 3: "+1 & +2 進階"}
 
 
 def parse_full(text: str) -> tuple | str:
@@ -92,7 +92,7 @@ def _build_title_keyboard(data: dict) -> InlineKeyboardMarkup | None:
 
 
 def _build_bonus_keyboard(score: int, count: int, title_idx: int, bonus: int) -> InlineKeyboardMarkup:
-    """建立技能加成選擇按鈕（4個獨立選項）。
+    """建立進階加成選擇按鈕（4個獨立選項）。
     bonus 為 4-bit 旗標：bit0=56+1, bit1=56+2, bit2=60+1, bit3=60+2
     """
     options = [
@@ -187,22 +187,22 @@ async def handle_callback(update: Update, context) -> None:
         action = parts[0]
 
         if action == "t":
-            # 選完稱號 → 顯示技能加成選項
+            # 選完稱號 → 顯示進階加成選項
             score, count, title_idx = int(parts[1]), int(parts[2]), int(parts[3])
             target = TITLE_NAMES[title_idx]
             keyboard = _build_bonus_keyboard(score, count, title_idx, bonus=0)
             await query.edit_message_text(
-                f"🎯 目標：{target}\n\n是否有競賽技能加成？（可複選）\n若沒有加成，請直接按「✔️ 直接計算」",
+                f"🎯 目標：{target}\n\n是否有競賽進階加成？（可複選）\n若沒有加成，請直接按「✔️ 直接計算」",
                 reply_markup=keyboard
             )
 
         elif action == "x":
-            # 切換技能選項（更新按鈕狀態）
+            # 切換進階選項（更新按鈕狀態）
             score, count, title_idx, bonus = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
             target = TITLE_NAMES[title_idx]
             keyboard = _build_bonus_keyboard(score, count, title_idx, bonus)
             await query.edit_message_text(
-                f"🎯 目標：{target}\n\n是否有競賽技能加成？（可複選）\n若沒有加成，請直接按「✔️ 直接計算」",
+                f"🎯 目標：{target}\n\n是否有競賽進階加成？（可複選）\n若沒有加成，請直接按「✔️ 直接計算」",
                 reply_markup=keyboard
             )
 

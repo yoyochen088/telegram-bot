@@ -30,11 +30,15 @@ TITLE_NAMES = ["無稱號", "青銅花匠", "白銀花匠", "黃金花匠", "大
 _user_state: dict = {}
 KEY_SCORES = "scores"
 KEY_ID = "uid"
+KEY_WIZARD = "wizard"  # 引導式輸入狀態
+
+# wizard 步驟
+WIZARD_STEPS = ["name", "score", "count", "max_count"]
 
 
 def _get_state(user_id: str) -> dict:
     if user_id not in _user_state:
-        _user_state[user_id] = {KEY_SCORES: [], KEY_ID: None}
+        _user_state[user_id] = {KEY_SCORES: [], KEY_ID: None, KEY_WIZARD: None}
     return _user_state[user_id]
 
 
@@ -91,13 +95,30 @@ async def _process_postback(data: str, user_id: str, reply_token: str, api: Mess
     parts = data.split("|")
     action = parts[0]
 
+    # Rich Menu 按鈕
+    if action == "menu":
+        if parts[1] == "help":
+            from formatter import format_help
+            await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=[TextMessage(text=format_help())]
+            ))
+        elif parts[1] == "calc":
+            # 開始引導式輸入
+            state[KEY_WIZARD] = {"step": "name", "data": {}}
+            await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=[TextMessage(text="🧮 開始計算分數\n\n請輸入你的名稱（ID）：")]
+            ))
+        return
+
     if action == "title":
         target, score, count = parts[1], int(parts[2]), int(parts[3])
         quick_reply = _build_bonus_quick_reply(target, score, count, 0)
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(
-                text=f"🎯 目標：{target}\n\n是否有競賽技能加成？（可複選）\n若沒有加成，請直接按「✔️直接計算」",
+                text=f"🎯 目標：{target}\n\n是否有競賽進階加成？（可複選）\n若沒有加成，請直接按「✔️直接計算」",
                 quick_reply=quick_reply
             )]
         ))
@@ -108,7 +129,7 @@ async def _process_postback(data: str, user_id: str, reply_token: str, api: Mess
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(
-                text=f"🎯 目標：{target}\n\n是否有競賽技能加成？（可複選）\n若沒有加成，請直接按「✔️直接計算」",
+                text=f"🎯 目標：{target}\n\n是否有競賽進階加成？（可複選）\n若沒有加成，請直接按「✔️直接計算」",
                 quick_reply=quick_reply
             )]
         ))
@@ -126,6 +147,48 @@ async def _process_postback(data: str, user_id: str, reply_token: str, api: Mess
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(text=reply)]
+        ))
+
+    elif action == "wizard_max":
+        # 引導式輸入最後一步：選擇最大任務數
+        max_count = int(parts[1])
+        wizard = state.get(KEY_WIZARD)
+        if not wizard or "data" not in wizard:
+            return
+        wdata = wizard["data"]
+        id_ = wdata.get("name", user_id)
+        score = wdata.get("score", 0)
+        count = wdata.get("count", 0)
+        state[KEY_ID] = id_
+        state[KEY_WIZARD] = None  # 清除 wizard 狀態
+
+        # 用 max_count 覆蓋剩餘名額計算
+        # 重新計算：剩餘名額 = max_count - count
+        remaining = max_count - count
+        if remaining < 0:
+            remaining = 0
+
+        data_result = compute_result(id_, score, count)
+        # 覆蓋 remaining_slots
+        data_result["remaining_slots"] = remaining
+        # 重新計算 recommendations
+        from calculator import recommend_combinations as rc
+        if remaining > 0:
+            data_result["recommendations"] = {
+                name: rc(score, threshold, remaining)
+                for threshold, name, _ in data_result["higher_titles"]
+            }
+        else:
+            data_result["recommendations"] = {}
+
+        summary = format_summary(data_result)
+        quick_reply = _build_title_quick_reply(data_result, score, count)
+        await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
+            reply_token=reply_token,
+            messages=[TextMessage(
+                text=f"📋 本期上限：{max_count} 個任務，剩餘 {remaining} 個\n\n{summary}",
+                quick_reply=quick_reply
+            )]
         ))
 
 
@@ -151,8 +214,76 @@ async def handle_line_event(event, api: MessagingApi) -> None:
     state = _get_state(user_id)
     reply_token = event.reply_token
 
+    # 引導式輸入 wizard 流程
+    wizard = state.get(KEY_WIZARD)
+    if wizard:
+        step = wizard["step"]
+        wdata = wizard["data"]
+
+        if step == "name":
+            wdata["name"] = text
+            wizard["step"] = "score"
+            await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=[TextMessage(text=f"👤 名稱：{text}\n\n請輸入目前累計總分：")]
+            ))
+            return
+
+        elif step == "score":
+            try:
+                wdata["score"] = int(text)
+                if wdata["score"] < 0:
+                    raise ValueError
+            except ValueError:
+                await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[TextMessage(text="❌ 請輸入有效的非負整數分數：")]
+                ))
+                return
+            wizard["step"] = "count"
+            await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=[TextMessage(text=f"📊 目前總分：{wdata['score']} 分\n\n請輸入目前已完成的任務數（0–24）：")]
+            ))
+            return
+
+        elif step == "count":
+            try:
+                wdata["count"] = int(text)
+                if not (0 <= wdata["count"] <= 24):
+                    raise ValueError
+            except ValueError:
+                await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[TextMessage(text="❌ 請輸入 0 到 24 之間的整數：")]
+                ))
+                return
+            wizard["step"] = "max_count"
+            # 顯示 18 或 24 的選擇按鈕
+            quick_reply = QuickReply(items=[
+                QuickReplyItem(action=PostbackAction(
+                    label="18 個任務",
+                    data=f"wizard_max|18",
+                    display_text="18 個任務"
+                )),
+                QuickReplyItem(action=PostbackAction(
+                    label="24 個任務",
+                    data=f"wizard_max|24",
+                    display_text="24 個任務"
+                )),
+            ])
+            await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=[TextMessage(
+                    text=f"✅ 已完成任務數：{wdata['count']} 個\n\n本期預計承接幾個任務？",
+                    quick_reply=quick_reply
+                )]
+            ))
+            return
+
     if text in ("/reset", "重置", "/重置"):
         state[KEY_SCORES] = []
+        state[KEY_WIZARD] = None
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(text="✅ 已清除本期累計紀錄，可以重新開始輸入。")]

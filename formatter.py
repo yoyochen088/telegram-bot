@@ -66,7 +66,7 @@ def format_recommendation(result: dict, target: str, combos: list | None, bonus:
     if bonus & 2:  bonus_parts.append("56+2")
     if bonus & 4:  bonus_parts.append("60+1")
     if bonus & 8:  bonus_parts.append("60+2")
-    bonus_tag = f"（技能加成：{', '.join(bonus_parts)}）" if bonus_parts else ""
+    bonus_tag = f"（進階加成：{', '.join(bonus_parts)}）" if bonus_parts else ""
 
     lines = [
         f"👤 ID：{id_}  📊 總分：{score} 分  📋 剩餘任務：{remaining_slots} 個",
