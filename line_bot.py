@@ -42,6 +42,27 @@ def _get_state(user_id: str) -> dict:
     return _user_state[user_id]
 
 
+def _main_quick_reply() -> QuickReply:
+    """常駐主選單 Quick Reply：直接計算、說明、重置。"""
+    return QuickReply(items=[
+        QuickReplyItem(action=PostbackAction(
+            label="🧮直接計算",
+            data="menu|calc",
+            display_text="計算分數"
+        )),
+        QuickReplyItem(action=PostbackAction(
+            label="📖說明",
+            data="menu|help",
+            display_text="說明"
+        )),
+        QuickReplyItem(action=PostbackAction(
+            label="🔄重置",
+            data="menu|reset",
+            display_text="重置"
+        )),
+    ])
+
+
 def _build_title_quick_reply(data: dict, score: int, count: int, max_count: int = 24) -> QuickReply | None:
     achievable = [
         name
@@ -98,14 +119,26 @@ async def _process_postback(data: str, user_id: str, reply_token: str, api: Mess
             from formatter import format_help
             await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
                 reply_token=reply_token,
-                messages=[TextMessage(text=format_help())]
+                messages=[TextMessage(text=format_help(), quick_reply=_main_quick_reply())]
             ))
         elif parts[1] == "calc":
-            # 開始引導式輸入
             state[KEY_WIZARD] = {"step": "name", "data": {}}
             await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
                 reply_token=reply_token,
-                messages=[TextMessage(text="🧮 開始計算分數\n\n請輸入你的名稱（ID）：")]
+                messages=[TextMessage(
+                    text="🧮 開始計算分數\n\n請輸入你的名稱（ID）：",
+                    quick_reply=_main_quick_reply()
+                )]
+            ))
+        elif parts[1] == "reset":
+            state[KEY_SCORES] = []
+            state[KEY_WIZARD] = None
+            await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=[TextMessage(
+                    text="✅ 已清除本期累計紀錄，可以重新開始輸入。",
+                    quick_reply=_main_quick_reply()
+                )]
             ))
         return
 
@@ -320,7 +353,7 @@ async def handle_line_event(event, api: MessagingApi) -> None:
         state[KEY_WIZARD] = None
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
-            messages=[TextMessage(text="✅ 已清除本期累計紀錄，可以重新開始輸入。")]
+            messages=[TextMessage(text="✅ 已清除本期累計紀錄，可以重新開始輸入。", quick_reply=_main_quick_reply())]
         ))
         return
 
@@ -328,7 +361,7 @@ async def handle_line_event(event, api: MessagingApi) -> None:
         from formatter import format_help
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
-            messages=[TextMessage(text=format_help())]
+            messages=[TextMessage(text=format_help(), quick_reply=_main_quick_reply())]
         ))
         return
 
@@ -371,7 +404,7 @@ async def handle_line_event(event, api: MessagingApi) -> None:
         except ValueError:
             await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
                 reply_token=reply_token,
-                messages=[TextMessage(text="❌ 格式錯誤！\n完整格式：{ID} {累計總分} {次數}，例如：蜜桃香檳 528 4\n單筆格式：直接輸入分數，例如：60")]
+                messages=[TextMessage(text="❌ 格式錯誤！\n完整格式：{ID} {累計總分} {次數}，例如：蜜桃香檳 528 4\n單筆格式：直接輸入分數，例如：60", quick_reply=_main_quick_reply())]
             ))
             return
 
@@ -388,8 +421,7 @@ async def handle_line_event(event, api: MessagingApi) -> None:
                 data=f"full_max|{id_}|{score}|{count}|24",
                 display_text="24 個任務"
             )),
-        ])
-        await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
+        ])        await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(
                 text=f"👤 {id_}  📊 {score} 分  已完成 {count} 次\n\n本期預計承接幾個任務？",
@@ -400,7 +432,7 @@ async def handle_line_event(event, api: MessagingApi) -> None:
 
     await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
         reply_token=reply_token,
-        messages=[TextMessage(text="❌ 格式錯誤！\n完整格式：{ID} {累計總分} {次數}，例如：蜜桃香檳 528 4\n單筆格式：直接輸入分數，例如：60\n輸入「說明」查看完整說明")]
+        messages=[TextMessage(text="❌ 格式錯誤！\n完整格式：{ID} {累計總分} {次數}，例如：蜜桃香檳 528 4\n單筆格式：直接輸入分數，例如：60\n輸入「說明」查看完整說明", quick_reply=_main_quick_reply())]
     ))
 
 
