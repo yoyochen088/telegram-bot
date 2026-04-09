@@ -42,7 +42,7 @@ def _get_state(user_id: str) -> dict:
     return _user_state[user_id]
 
 
-def _build_title_quick_reply(data: dict, score: int, count: int) -> QuickReply | None:
+def _build_title_quick_reply(data: dict, score: int, count: int, max_count: int = 24) -> QuickReply | None:
     achievable = [
         name
         for _, name, _ in reversed(data["higher_titles"])
@@ -54,7 +54,7 @@ def _build_title_quick_reply(data: dict, score: int, count: int) -> QuickReply |
     items = [
         QuickReplyItem(action=PostbackAction(
             label=name,
-            data=f"title|{name}|{score}|{count}",
+            data=f"title|{name}|{score}|{count}|{max_count}",
             display_text=name
         ))
         for name in achievable
@@ -62,20 +62,17 @@ def _build_title_quick_reply(data: dict, score: int, count: int) -> QuickReply |
     return QuickReply(items=items)
 
 
-def _build_bonus_quick_reply(target: str, score: int, count: int, bonus: int) -> QuickReply:
+def _build_bonus_quick_reply(target: str, score: int, count: int, bonus: int, max_count: int = 24) -> QuickReply:
     options = [
         (0, "56+1"),
         (1, "56+2"),
         (2, "60+1"),
         (3, "60+2"),
     ]
-    checked_labels = {
-        True: "✅",
-        False: "⬜",
-    }
+    checked_labels = {True: "✅", False: "⬜"}
     items = [QuickReplyItem(action=PostbackAction(
         label="✔️直接計算",
-        data=f"calc|{target}|{score}|{count}|{bonus}",
+        data=f"calc|{target}|{score}|{count}|{bonus}|{max_count}",
         display_text="直接計算"
     ))]
     for bit, label in options:
@@ -83,7 +80,7 @@ def _build_bonus_quick_reply(target: str, score: int, count: int, bonus: int) ->
         new_bonus = bonus ^ (1 << bit)
         items.append(QuickReplyItem(action=PostbackAction(
             label=f"{checked_labels[checked]}{label}",
-            data=f"bonus|{target}|{score}|{count}|{new_bonus}",
+            data=f"bonus|{target}|{score}|{count}|{new_bonus}|{max_count}",
             display_text=f"{checked_labels[checked]}{label}"
         )))
     return QuickReply(items=items)
@@ -114,7 +111,8 @@ async def _process_postback(data: str, user_id: str, reply_token: str, api: Mess
 
     if action == "title":
         target, score, count = parts[1], int(parts[2]), int(parts[3])
-        quick_reply = _build_bonus_quick_reply(target, score, count, 0)
+        max_count = int(parts[4]) if len(parts) > 4 else 24
+        quick_reply = _build_bonus_quick_reply(target, score, count, 0, max_count)
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(
@@ -125,7 +123,8 @@ async def _process_postback(data: str, user_id: str, reply_token: str, api: Mess
 
     elif action == "bonus":
         target, score, count, bonus = parts[1], int(parts[2]), int(parts[3]), int(parts[4])
-        quick_reply = _build_bonus_quick_reply(target, score, count, bonus)
+        max_count = int(parts[5]) if len(parts) > 5 else 24
+        quick_reply = _build_bonus_quick_reply(target, score, count, bonus, max_count)
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(
@@ -136,17 +135,52 @@ async def _process_postback(data: str, user_id: str, reply_token: str, api: Mess
 
     elif action == "calc":
         target, score, count, bonus = parts[1], int(parts[2]), int(parts[3]), int(parts[4])
+        max_count = int(parts[5]) if len(parts) > 5 else 24
+        remaining = max(0, max_count - count)
         id_ = state.get(KEY_ID) or user_id
         data_result = compute_result(id_, score, count)
+        data_result["remaining_slots"] = remaining
+        # 重新計算 recommendations 用正確的 remaining
+        if remaining > 0:
+            data_result["recommendations"] = {
+                name: recommend_combinations(score, threshold, remaining)
+                for threshold, name, _ in data_result["higher_titles"]
+            }
+        else:
+            data_result["recommendations"] = {}
         gap_entry = next((g for _, n, g in data_result["higher_titles"] if n == target), None)
         if gap_entry is not None:
-            combos = recommend_combinations(score, score + gap_entry, data_result["remaining_slots"], bonus)
+            combos = recommend_combinations(score, score + gap_entry, remaining, bonus)
         else:
             combos = None
         reply = format_recommendation(data_result, target, combos, bonus)
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(text=reply)]
+        ))
+
+    elif action == "full_max":
+        # 完整格式輸入後選擇最大任務數
+        id_, score, count, max_count = parts[1], int(parts[2]), int(parts[3]), int(parts[4])
+        remaining = max(0, max_count - count)
+        state[KEY_ID] = id_
+        data_result = compute_result(id_, score, count)
+        data_result["remaining_slots"] = remaining
+        if remaining > 0:
+            data_result["recommendations"] = {
+                name: recommend_combinations(score, threshold, remaining)
+                for threshold, name, _ in data_result["higher_titles"]
+            }
+        else:
+            data_result["recommendations"] = {}
+        summary = format_summary(data_result)
+        quick_reply = _build_title_quick_reply(data_result, score, count, max_count)
+        await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
+            reply_token=reply_token,
+            messages=[TextMessage(
+                text=f"📋 本期上限：{max_count} 個任務，剩餘 {remaining} 個\n\n{summary}",
+                quick_reply=quick_reply
+            )]
         ))
 
     elif action == "wizard_max":
@@ -182,7 +216,7 @@ async def _process_postback(data: str, user_id: str, reply_token: str, api: Mess
             data_result["recommendations"] = {}
 
         summary = format_summary(data_result)
-        quick_reply = _build_title_quick_reply(data_result, score, count)
+        quick_reply = _build_title_quick_reply(data_result, score, count, max_count)
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(
@@ -342,12 +376,25 @@ async def handle_line_event(event, api: MessagingApi) -> None:
             return
 
         state[KEY_ID] = id_
-        data = compute_result(id_, score, count)
-        summary = format_summary(data)
-        quick_reply = _build_title_quick_reply(data, score, count)
+        # 詢問 18 或 24
+        quick_reply = QuickReply(items=[
+            QuickReplyItem(action=PostbackAction(
+                label="18 個任務",
+                data=f"full_max|{id_}|{score}|{count}|18",
+                display_text="18 個任務"
+            )),
+            QuickReplyItem(action=PostbackAction(
+                label="24 個任務",
+                data=f"full_max|{id_}|{score}|{count}|24",
+                display_text="24 個任務"
+            )),
+        ])
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
-            messages=[TextMessage(text=summary, quick_reply=quick_reply)]
+            messages=[TextMessage(
+                text=f"👤 {id_}  📊 {score} 分  已完成 {count} 次\n\n本期預計承接幾個任務？",
+                quick_reply=quick_reply
+            )]
         ))
         return
 
