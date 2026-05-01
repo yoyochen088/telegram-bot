@@ -7,13 +7,13 @@ bot.py — Bot 主程式
   /reset：清除本期累計紀錄
 
 callback_data 格式：
-  稱號選擇：  t_{score}_{count}_{title_idx}
-  技能確認：  b_{score}_{count}_{title_idx}_{bonus}
-  技能切換：  x_{score}_{count}_{title_idx}_{bonus}
+  任務數選擇：  s_{score}_{count}_{max_slots}
+  稱號選擇：    t_{score}_{count}_{max_slots}_{title_idx}
+  進階加成確認：b_{score}_{count}_{max_slots}_{title_idx}_{bonus}
+  進階加成切換：x_{score}_{count}_{max_slots}_{title_idx}_{bonus}
 """
 
 import asyncio
-import json
 import logging
 import os
 
@@ -34,11 +34,10 @@ logger = logging.getLogger(__name__)
 
 KEY_SCORES = "scores"
 KEY_ID = "uid"
+KEY_MAX_SLOTS = "max_slots"
 
 TITLE_NAMES = ["無稱號", "青銅花匠", "白銀花匠", "黃金花匠", "大師花匠", "王者花匠"]
-
-# bonus 位元：bit0 = +1技能, bit1 = +2技能
-BONUS_LABELS = {0: "無加成", 1: "+1 技能", 2: "+2 技能", 3: "+1 & +2 技能"}
+SLOT_OPTIONS = [18, 24]
 
 
 def parse_full(text: str) -> tuple | str:
@@ -66,13 +65,19 @@ def _get_display_name(update: Update) -> str:
     return user.username or user.first_name or str(user.id)
 
 
-def _build_title_keyboard(data: dict) -> InlineKeyboardMarkup | None:
-    """建立目標稱號選擇按鈕。callback_data: t_{score}_{count}_{title_idx}"""
+def _build_slots_keyboard(score: int, count: int) -> InlineKeyboardMarkup:
+    """建立本週任務數選擇按鈕。callback_data: s_{score}_{count}_{max_slots}"""
+    buttons = [
+        [InlineKeyboardButton(f"📋 {n} 個任務", callback_data=f"s_{score}_{count}_{n}")]
+        for n in SLOT_OPTIONS
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+
+def _build_title_keyboard(data: dict, score: int, count: int, max_slots: int) -> InlineKeyboardMarkup | None:
+    """建立目標稱號選擇按鈕。callback_data: t_{score}_{count}_{max_slots}_{title_idx}"""
     if data["title"] == "王者花匠" or data["remaining_slots"] == 0:
         return None
-
-    score = data["score"]
-    count = 24 - data["remaining_slots"]
 
     achievable = [
         name
@@ -85,14 +90,14 @@ def _build_title_keyboard(data: dict) -> InlineKeyboardMarkup | None:
     buttons = []
     for name in achievable:
         title_idx = TITLE_NAMES.index(name)
-        cb = f"t_{score}_{count}_{title_idx}"
+        cb = f"t_{score}_{count}_{max_slots}_{title_idx}"
         buttons.append([InlineKeyboardButton(f"🎯 {name}", callback_data=cb)])
 
     return InlineKeyboardMarkup(buttons)
 
 
-def _build_bonus_keyboard(score: int, count: int, title_idx: int, bonus: int) -> InlineKeyboardMarkup:
-    """建立技能加成選擇按鈕（4個獨立選項）。
+def _build_bonus_keyboard(score: int, count: int, max_slots: int, title_idx: int, bonus: int) -> InlineKeyboardMarkup:
+    """建立進階加成選擇按鈕（4個獨立選項）。
     bonus 為 4-bit 旗標：bit0=56+1, bit1=56+2, bit2=60+1, bit3=60+2
     """
     options = [
@@ -103,13 +108,13 @@ def _build_bonus_keyboard(score: int, count: int, title_idx: int, bonus: int) ->
     ]
     btn_confirm = InlineKeyboardButton(
         "✔️ 直接計算",
-        callback_data=f"b_{score}_{count}_{title_idx}_{bonus}"
+        callback_data=f"b_{score}_{count}_{max_slots}_{title_idx}_{bonus}"
     )
     buttons = [[btn_confirm]]
     for bit, label in options:
         checked = bool(bonus & (1 << bit))
         new_bonus = bonus ^ (1 << bit)
-        cb = f"x_{score}_{count}_{title_idx}_{new_bonus}"
+        cb = f"x_{score}_{count}_{max_slots}_{title_idx}_{new_bonus}"
         buttons.append([InlineKeyboardButton(
             f"{'✅' if checked else '⬜'} {label}",
             callback_data=cb
@@ -117,19 +122,22 @@ def _build_bonus_keyboard(score: int, count: int, title_idx: int, bonus: int) ->
     return InlineKeyboardMarkup(buttons)
 
 
-async def _send_result(update: Update, data: dict) -> None:
-    await update.message.reply_text(format_summary(data))
-    keyboard = _build_title_keyboard(data)
-    if keyboard:
-        await update.message.reply_text("請選擇本期目標稱號：", reply_markup=keyboard)
+async def _send_result(update: Update, score: int, count: int, id_: str, context) -> None:
+    """顯示計算摘要，並詢問本週預計任務數。"""
+    await update.message.reply_text(
+        "請選擇本週預計要解的任務數：",
+        reply_markup=_build_slots_keyboard(score, count)
+    )
 
 
 async def handle_help(update: Update, context) -> None:
-    await update.message.reply_text(format_help())
+    max_slots = context.user_data.get(KEY_MAX_SLOTS)
+    await update.message.reply_text(format_help(max_slots))
 
 
 async def handle_reset(update: Update, context) -> None:
     context.user_data[KEY_SCORES] = []
+    context.user_data.pop(KEY_MAX_SLOTS, None)
     await update.message.reply_text("✅ 已清除本期累計紀錄，可以重新開始輸入。")
 
 
@@ -159,8 +167,7 @@ async def handle_message(update: Update, context) -> None:
                 f"➕ 已記錄 {score_input} 分\n"
                 f"📝 本期累計：{detail} = {total} 分（共 {count} 次）"
             )
-            data = compute_result(id_, total, count)
-            await _send_result(update, data)
+            await _send_result(update, total, count, id_, context)
             return
 
         # 完整格式
@@ -171,8 +178,7 @@ async def handle_message(update: Update, context) -> None:
 
         id_, score, count = parsed
         user_data[KEY_ID] = id_
-        data = compute_result(id_, score, count)
-        await _send_result(update, data)
+        await _send_result(update, score, count, id_, context)
 
     except Exception as e:
         logger.error("handle_message error: %s", e, exc_info=True)
@@ -186,37 +192,54 @@ async def handle_callback(update: Update, context) -> None:
         parts = query.data.split("_")
         action = parts[0]
 
-        if action == "t":
-            # 選完稱號 → 顯示技能加成選項
-            score, count, title_idx = int(parts[1]), int(parts[2]), int(parts[3])
+        if action == "s":
+            # 選完任務數 → 顯示計算摘要與目標稱號選擇
+            score, count, max_slots = int(parts[1]), int(parts[2]), int(parts[3])
+            context.user_data[KEY_MAX_SLOTS] = max_slots
+
+            id_ = context.user_data.get(KEY_ID) or (
+                query.from_user.username or query.from_user.first_name or str(query.from_user.id)
+            )
+            data = compute_result(id_, score, count, max_slots)
+            summary = format_summary(data)
+            keyboard = _build_title_keyboard(data, score, count, max_slots)
+
+            if keyboard:
+                await query.edit_message_text(summary)
+                await query.message.reply_text("請選擇本期目標稱號：", reply_markup=keyboard)
+            else:
+                await query.edit_message_text(summary)
+
+        elif action == "t":
+            # 選完稱號 → 顯示進階加成選項
+            score, count, max_slots, title_idx = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
             target = TITLE_NAMES[title_idx]
-            keyboard = _build_bonus_keyboard(score, count, title_idx, bonus=0)
+            keyboard = _build_bonus_keyboard(score, count, max_slots, title_idx, bonus=0)
             await query.edit_message_text(
-                f"🎯 目標：{target}\n\n是否有競賽技能加成？（可複選）\n若沒有加成，請直接按「✔️ 直接計算」",
+                f"🎯 目標：{target}\n\n是否有進階加成？（可複選）\n若沒有加成，請直接按「✔️ 直接計算」",
                 reply_markup=keyboard
             )
 
         elif action == "x":
-            # 切換技能選項（更新按鈕狀態）
-            score, count, title_idx, bonus = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
+            # 切換進階加成選項（更新按鈕狀態）
+            score, count, max_slots, title_idx, bonus = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
             target = TITLE_NAMES[title_idx]
-            keyboard = _build_bonus_keyboard(score, count, title_idx, bonus)
+            keyboard = _build_bonus_keyboard(score, count, max_slots, title_idx, bonus)
             await query.edit_message_text(
-                f"🎯 目標：{target}\n\n是否有競賽技能加成？（可複選）\n若沒有加成，請直接按「✔️ 直接計算」",
+                f"🎯 目標：{target}\n\n是否有進階加成？（可複選）\n若沒有加成，請直接按「✔️ 直接計算」",
                 reply_markup=keyboard
             )
 
         elif action == "b":
             # 確認計算
-            score, count, title_idx, bonus = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
+            score, count, max_slots, title_idx, bonus = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
             target = TITLE_NAMES[title_idx]
 
             id_ = context.user_data.get(KEY_ID) or (
                 query.from_user.username or query.from_user.first_name or str(query.from_user.id)
             )
 
-            data = compute_result(id_, score, count)
-            # 用 bonus 重新計算推薦組合
+            data = compute_result(id_, score, count, max_slots)
             gap_entry = next((g for _, n, g in data["higher_titles"] if n == target), None)
             if gap_entry is not None:
                 remaining_slots = data["remaining_slots"]
@@ -268,7 +291,6 @@ def main() -> None:
                 await app.process_update(update)
                 return web.Response(text="OK")
 
-            # 先啟動 HTTP server，讓 Render health check 通過
             http_app = web.Application()
             http_app.router.add_get("/", health)
             http_app.router.add_post("/webhook", webhook_handler)
@@ -282,13 +304,11 @@ def main() -> None:
             await site.start()
             logger.info(f"HTTP server started on port {port}")
 
-            # 再初始化 Bot
             await app.initialize()
             await app.bot.set_webhook(f"{webhook_url}/webhook")
             await app.start()
             logger.info("Bot started")
 
-            # 每 10 分鐘 ping 自己，防止 Render 免費版 sleep
             async def keep_alive():
                 import aiohttp as _aiohttp
                 while True:

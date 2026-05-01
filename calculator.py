@@ -42,9 +42,9 @@ def get_higher_titles(score: int) -> list[tuple[int, str, int]]:
     ]
 
 
-def calc_remaining_slots(count: int) -> int:
-    """回傳剩餘名額 = 24 - count。"""
-    return 24 - count
+def calc_remaining_slots(count: int, max_slots: int = 24) -> int:
+    """回傳剩餘名額 = max_slots - count。"""
+    return max(0, max_slots - count)
 
 
 def recommend_combinations(
@@ -113,13 +113,14 @@ def recommend_combinations(
     return results
 
 
-def compute_result(id_: str, score: int, count: int) -> dict:
+def compute_result(id_: str, score: int, count: int, max_slots: int = 24) -> dict:
     """
     整合所有計算，回傳結構化結果 dict：
     {
         "id": str,
         "score": int,
         "title": str,
+        "max_slots": int,
         "remaining_slots": int,
         "higher_titles": list[tuple[int, str, int]],
         "recommendations": dict[str, list | None],
@@ -127,7 +128,7 @@ def compute_result(id_: str, score: int, count: int) -> dict:
     """
     title = get_title(score)
     higher_titles = get_higher_titles(score)
-    remaining_slots = calc_remaining_slots(count)
+    remaining_slots = calc_remaining_slots(count, max_slots)
 
     if remaining_slots > 0:
         recommendations = {
@@ -141,6 +142,7 @@ def compute_result(id_: str, score: int, count: int) -> dict:
         "id": id_,
         "score": score,
         "title": title,
+        "max_slots": max_slots,
         "remaining_slots": remaining_slots,
         "higher_titles": higher_titles,
         "recommendations": recommendations,

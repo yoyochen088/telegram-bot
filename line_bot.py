@@ -2,6 +2,12 @@
 line_bot.py — LINE Bot 處理邏輯
 
 使用 PostbackAction 讓按鈕點擊不顯示內部指令文字。
+
+Postback data 格式：
+  任務數選擇：  slots|{score}|{count}|{max_slots}
+  稱號選擇：    title|{target}|{score}|{count}|{max_slots}
+  進階加成切換：bonus|{target}|{score}|{count}|{max_slots}|{bonus}
+  確認計算：    calc|{target}|{score}|{count}|{max_slots}|{bonus}
 """
 
 import asyncio
@@ -26,19 +32,34 @@ from formatter import format_summary, format_recommendation
 logger = logging.getLogger(__name__)
 
 TITLE_NAMES = ["無稱號", "青銅花匠", "白銀花匠", "黃金花匠", "大師花匠", "王者花匠"]
+SLOT_OPTIONS = [18, 24]
 
 _user_state: dict = {}
 KEY_SCORES = "scores"
 KEY_ID = "uid"
+KEY_MAX_SLOTS = "max_slots"
 
 
 def _get_state(user_id: str) -> dict:
     if user_id not in _user_state:
-        _user_state[user_id] = {KEY_SCORES: [], KEY_ID: None}
+        _user_state[user_id] = {KEY_SCORES: [], KEY_ID: None, KEY_MAX_SLOTS: None}
     return _user_state[user_id]
 
 
-def _build_title_quick_reply(data: dict, score: int, count: int) -> QuickReply | None:
+def _build_slots_quick_reply(score: int, count: int) -> QuickReply:
+    """建立本週任務數選擇 Quick Reply。"""
+    items = [
+        QuickReplyItem(action=PostbackAction(
+            label=f"📋 {n} 個任務",
+            data=f"slots|{score}|{count}|{n}",
+            display_text=f"{n} 個任務"
+        ))
+        for n in SLOT_OPTIONS
+    ]
+    return QuickReply(items=items)
+
+
+def _build_title_quick_reply(data: dict, score: int, count: int, max_slots: int) -> QuickReply | None:
     achievable = [
         name
         for _, name, _ in reversed(data["higher_titles"])
@@ -50,7 +71,7 @@ def _build_title_quick_reply(data: dict, score: int, count: int) -> QuickReply |
     items = [
         QuickReplyItem(action=PostbackAction(
             label=name,
-            data=f"title|{name}|{score}|{count}",
+            data=f"title|{name}|{score}|{count}|{max_slots}",
             display_text=name
         ))
         for name in achievable
@@ -58,20 +79,17 @@ def _build_title_quick_reply(data: dict, score: int, count: int) -> QuickReply |
     return QuickReply(items=items)
 
 
-def _build_bonus_quick_reply(target: str, score: int, count: int, bonus: int) -> QuickReply:
+def _build_bonus_quick_reply(target: str, score: int, count: int, max_slots: int, bonus: int) -> QuickReply:
     options = [
         (0, "56+1"),
         (1, "56+2"),
         (2, "60+1"),
         (3, "60+2"),
     ]
-    checked_labels = {
-        True: "✅",
-        False: "⬜",
-    }
+    checked_labels = {True: "✅", False: "⬜"}
     items = [QuickReplyItem(action=PostbackAction(
         label="✔️直接計算",
-        data=f"calc|{target}|{score}|{count}|{bonus}",
+        data=f"calc|{target}|{score}|{count}|{max_slots}|{bonus}",
         display_text="直接計算"
     ))]
     for bit, label in options:
@@ -79,7 +97,7 @@ def _build_bonus_quick_reply(target: str, score: int, count: int, bonus: int) ->
         new_bonus = bonus ^ (1 << bit)
         items.append(QuickReplyItem(action=PostbackAction(
             label=f"{checked_labels[checked]}{label}",
-            data=f"bonus|{target}|{score}|{count}|{new_bonus}",
+            data=f"bonus|{target}|{score}|{count}|{max_slots}|{new_bonus}",
             display_text=f"{checked_labels[checked]}{label}"
         )))
     return QuickReply(items=items)
@@ -91,32 +109,54 @@ async def _process_postback(data: str, user_id: str, reply_token: str, api: Mess
     parts = data.split("|")
     action = parts[0]
 
-    if action == "title":
-        target, score, count = parts[1], int(parts[2]), int(parts[3])
-        quick_reply = _build_bonus_quick_reply(target, score, count, 0)
+    if action == "slots":
+        # 選完任務數 → 顯示計算摘要與目標稱號選擇
+        score, count, max_slots = int(parts[1]), int(parts[2]), int(parts[3])
+        state[KEY_MAX_SLOTS] = max_slots
+        id_ = state.get(KEY_ID) or user_id
+
+        data_result = compute_result(id_, score, count, max_slots)
+        summary = format_summary(data_result)
+        quick_reply = _build_title_quick_reply(data_result, score, count, max_slots)
+
+        msg_text = summary
+        if quick_reply:
+            msg_text += "\n\n請選擇本期目標稱號："
+
+        await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
+            reply_token=reply_token,
+            messages=[TextMessage(text=msg_text, quick_reply=quick_reply)]
+        ))
+
+    elif action == "title":
+        # 選完稱號 → 顯示進階加成選項
+        target, score, count, max_slots = parts[1], int(parts[2]), int(parts[3]), int(parts[4])
+        quick_reply = _build_bonus_quick_reply(target, score, count, max_slots, 0)
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(
-                text=f"🎯 目標：{target}\n\n是否有競賽技能加成？（可複選）\n若沒有加成，請直接按「✔️直接計算」",
+                text=f"🎯 目標：{target}\n\n是否有進階加成？（可複選）\n若沒有加成，請直接按「✔️直接計算」",
                 quick_reply=quick_reply
             )]
         ))
 
     elif action == "bonus":
-        target, score, count, bonus = parts[1], int(parts[2]), int(parts[3]), int(parts[4])
-        quick_reply = _build_bonus_quick_reply(target, score, count, bonus)
+        # 切換進階加成選項（更新按鈕狀態）
+        target, score, count, max_slots, bonus = parts[1], int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
+        quick_reply = _build_bonus_quick_reply(target, score, count, max_slots, bonus)
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(
-                text=f"🎯 目標：{target}\n\n是否有競賽技能加成？（可複選）\n若沒有加成，請直接按「✔️直接計算」",
+                text=f"🎯 目標：{target}\n\n是否有進階加成？（可複選）\n若沒有加成，請直接按「✔️直接計算」",
                 quick_reply=quick_reply
             )]
         ))
 
     elif action == "calc":
-        target, score, count, bonus = parts[1], int(parts[2]), int(parts[3]), int(parts[4])
+        # 確認計算
+        target, score, count, max_slots, bonus = parts[1], int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
         id_ = state.get(KEY_ID) or user_id
-        data_result = compute_result(id_, score, count)
+        data_result = compute_result(id_, score, count, max_slots)
         gap_entry = next((g for _, n, g in data_result["higher_titles"] if n == target), None)
         if gap_entry is not None:
             combos = recommend_combinations(score, score + gap_entry, data_result["remaining_slots"], bonus)
@@ -153,6 +193,7 @@ async def handle_line_event(event, api: MessagingApi) -> None:
 
     if text in ("/reset", "重置", "/重置"):
         state[KEY_SCORES] = []
+        state[KEY_MAX_SLOTS] = None
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(text="✅ 已清除本期累計紀錄，可以重新開始輸入。")]
@@ -161,9 +202,10 @@ async def handle_line_event(event, api: MessagingApi) -> None:
 
     if text in ("/help", "/start", "說明", "help"):
         from formatter import format_help
+        max_slots = state.get(KEY_MAX_SLOTS)
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
-            messages=[TextMessage(text=format_help())]
+            messages=[TextMessage(text=format_help(max_slots))]
         ))
         return
 
@@ -181,13 +223,14 @@ async def handle_line_event(event, api: MessagingApi) -> None:
         scores = state[KEY_SCORES]
         total = sum(scores)
         count = len(scores)
-        id_ = state.get(KEY_ID) or user_id
 
         detail = " + ".join(str(s) for s in scores)
-        data = compute_result(id_, total, count)
-        summary = format_summary(data)
-        quick_reply = _build_title_quick_reply(data, total, count)
-        msg_text = f"➕ 已記錄 {score_input} 分\n📝 本期累計：{detail} = {total} 分（共 {count} 次）\n\n{summary}"
+        quick_reply = _build_slots_quick_reply(total, count)
+        msg_text = (
+            f"➕ 已記錄 {score_input} 分\n"
+            f"📝 本期累計：{detail} = {total} 分（共 {count} 次）\n\n"
+            f"請選擇本週預計要解的任務數："
+        )
 
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
@@ -211,12 +254,13 @@ async def handle_line_event(event, api: MessagingApi) -> None:
             return
 
         state[KEY_ID] = id_
-        data = compute_result(id_, score, count)
-        summary = format_summary(data)
-        quick_reply = _build_title_quick_reply(data, score, count)
+        quick_reply = _build_slots_quick_reply(score, count)
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
-            messages=[TextMessage(text=summary, quick_reply=quick_reply)]
+            messages=[TextMessage(
+                text="請選擇本週預計要解的任務數：",
+                quick_reply=quick_reply
+            )]
         ))
         return
 

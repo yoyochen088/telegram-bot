@@ -21,10 +21,11 @@ def _format_combo(combo: tuple) -> str:
 
 
 def format_summary(result: dict) -> str:
-    """回覆基本摘要：ID、總分、稱號、剩餘任務、各稱號差距。"""
+    """回覆基本摘要：ID、總分、稱號、任務上限、剩餘任務、各稱號差距。"""
     id_ = result["id"]
     score = result["score"]
     title = result["title"]
+    max_slots = result.get("max_slots", 24)
     remaining_slots = result["remaining_slots"]
     higher_titles = result["higher_titles"]
 
@@ -37,10 +38,12 @@ def format_summary(result: dict) -> str:
         lines.append(f"🏆 恭喜！{id_} 已達最高稱號「王者花匠」！")
         return "\n".join(lines)
 
+    lines.append(f"📌 本週預計任務數：{max_slots} 個")
+
     if remaining_slots == 0:
-        lines.append("⚠️ 本期任務名額已用盡（已完成 24 個任務）")
+        lines.append(f"⚠️ 本期任務名額已用盡（已完成 {max_slots} 個任務）")
     else:
-        lines.append(f"📋 本期剩餘任務：{remaining_slots} 個")
+        lines.append(f"📋 本期剩餘可接任務：{remaining_slots} 個")
 
     if higher_titles:
         lines.append("")
@@ -55,6 +58,7 @@ def format_recommendation(result: dict, target: str, combos: list | None, bonus:
     """回覆指定目標稱號的推薦組合。"""
     id_ = result["id"]
     score = result["score"]
+    max_slots = result.get("max_slots", 24)
     remaining_slots = result["remaining_slots"]
 
     gap = next(
@@ -66,10 +70,10 @@ def format_recommendation(result: dict, target: str, combos: list | None, bonus:
     if bonus & 2:  bonus_parts.append("56+2")
     if bonus & 4:  bonus_parts.append("60+1")
     if bonus & 8:  bonus_parts.append("60+2")
-    bonus_tag = f"（技能加成：{', '.join(bonus_parts)}）" if bonus_parts else ""
+    bonus_tag = f"（進階加成：{', '.join(bonus_parts)}）" if bonus_parts else ""
 
     lines = [
-        f"👤 ID：{id_}  📊 總分：{score} 分  📋 剩餘任務：{remaining_slots} 個",
+        f"👤 ID：{id_}  📊 總分：{score} 分  📌 任務上限：{max_slots} 個  📋 剩餘可接：{remaining_slots} 個",
         "",
         f"🎯 目標：{target}（還差 {gap} 分）{bonus_tag}",
         "",
@@ -90,8 +94,17 @@ def format_reply(result: dict) -> str:
     return format_summary(result)
 
 
-def format_help() -> str:
-    """回傳 /start 與 /help 的使用說明字串。"""
+def format_help(max_slots: int | None = None) -> str:
+    """回傳 /start 與 /help 的使用說明字串。
+    若傳入 max_slots，額外顯示目前任務數設定與剩餘可接任務數提示。
+    """
+    slot_info = ""
+    if max_slots is not None:
+        slot_info = (
+            f"\n⚙️ 目前設定：依照 {max_slots} 個任務計算\n"
+            f"  （若要更改，請輸入分數後重新選擇任務數）\n"
+        )
+
     return (
         "🌸 公會競賽分數計算 Bot\n"
         "\n"
@@ -120,4 +133,5 @@ def format_help() -> str:
         "  1000–1299 分：黃金花匠\n"
         "  1300–1399 分：大師花匠\n"
         "  1400 分以上：王者花匠"
+        + slot_info
     )
