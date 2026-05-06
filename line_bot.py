@@ -62,7 +62,7 @@ def _build_slots_quick_reply(score: int, count: int) -> QuickReply:
 
 
 def _build_max_score_quick_reply(score: int, count: int, max_slots: int) -> QuickReply:
-    labels = {28: "最高28分", 46: "最高46分", 50: "最高50分", 56: "最高56分", 60: "最高60分"}
+    labels = {60: "60", 56: "56", 50: "50", 46: "46",28: "28"}
     items = [
         QuickReplyItem(action=PostbackAction(
             label=labels[n],
