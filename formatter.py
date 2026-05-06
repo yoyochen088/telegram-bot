@@ -7,6 +7,13 @@ formatter.py — 回覆格式化（純函式）
 MAX_RECOMMENDATIONS = 5
 
 
+def _display_id(id_: str) -> str:
+    """若 ID 是 LINE user_id 格式（U 開頭 33碼）則顯示為『未設定』。"""
+    if id_ and id_.startswith("U") and len(id_) == 33:
+        return "（未設定）"
+    return id_ or "（未設定）"
+
+
 def _format_combo(combo: tuple) -> str:
     """將單一推薦組合格式化為可讀字串。"""
     sa, ca, sb, cb = combo

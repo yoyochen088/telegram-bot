@@ -3,16 +3,17 @@ line_bot.py — LINE Bot 處理邏輯
 
 使用 PostbackAction 讓按鈕點擊不顯示內部指令文字。
 
-Postback data 格式：
-  任務數選擇：    slots|{score}|{count}|{max_slots}
-  最高分選擇：    maxscore|{score}|{count}|{max_slots}|{max_score}
-  進階加成切換：  bonus|{score}|{count}|{max_slots}|{max_score}|{bonus}
-  進階加成確認：  confirm|{score}|{count}|{max_slots}|{max_score}|{bonus}
-  稱號選擇：      title|{target}|{score}|{count}|{max_slots}|{max_score}|{bonus}
+Postback data 格式（id 以 URL encode 方式帶入，用 ~ 分隔避免與 | 衝突）：
+  任務數選擇：    slots|{id}|{score}|{count}|{max_slots}
+  最高分選擇：    maxscore|{id}|{score}|{count}|{max_slots}|{max_score}
+  進階加成切換：  bonus|{id}|{score}|{count}|{max_slots}|{max_score}|{bonus}
+  進階加成確認：  confirm|{id}|{score}|{count}|{max_slots}|{max_score}|{bonus}
+  稱號選擇：      title|{id}|{target}|{score}|{count}|{max_slots}|{max_score}|{bonus}
 """
 
 import asyncio
 import logging
+from urllib.parse import quote, unquote
 
 from linebot.v3 import WebhookParser
 from linebot.v3.messaging import (
@@ -49,11 +50,21 @@ def _get_state(user_id: str) -> dict:
     return _user_state[user_id]
 
 
-def _build_slots_quick_reply(score: int, count: int) -> QuickReply:
+def _enc(id_: str) -> str:
+    """將 ID 編碼，避免 | 字元干擾 postback data 解析。"""
+    return quote(id_, safe="")
+
+
+def _dec(s: str) -> str:
+    return unquote(s)
+
+
+def _build_slots_quick_reply(id_: str, score: int, count: int) -> QuickReply:
+    eid = _enc(id_)
     items = [
         QuickReplyItem(action=PostbackAction(
             label=f"📋 {n} 個任務",
-            data=f"slots|{score}|{count}|{n}",
+            data=f"slots|{eid}|{score}|{count}|{n}",
             display_text=f"{n} 個任務"
         ))
         for n in SLOT_OPTIONS
@@ -61,11 +72,12 @@ def _build_slots_quick_reply(score: int, count: int) -> QuickReply:
     return QuickReply(items=items)
 
 
-def _build_max_score_quick_reply(score: int, count: int, max_slots: int) -> QuickReply:
+def _build_max_score_quick_reply(id_: str, score: int, count: int, max_slots: int) -> QuickReply:
+    eid = _enc(id_)
     items = [
         QuickReplyItem(action=PostbackAction(
             label=str(n),
-            data=f"maxscore|{score}|{count}|{max_slots}|{n}",
+            data=f"maxscore|{eid}|{score}|{count}|{max_slots}|{n}",
             display_text=str(n)
         ))
         for n in MAX_SCORE_OPTIONS
@@ -73,10 +85,11 @@ def _build_max_score_quick_reply(score: int, count: int, max_slots: int) -> Quic
     return QuickReply(items=items)
 
 
-def _build_bonus_quick_reply(score: int, count: int, max_slots: int, max_score: int, bonus: int) -> QuickReply:
+def _build_bonus_quick_reply(id_: str, score: int, count: int, max_slots: int, max_score: int, bonus: int) -> QuickReply:
     """進階加成選擇，依 max_score 決定顯示哪些選項。
     四個選項獨立可複選：56+1、56+2、60+1、60+2 可同時存在。
     """
+    eid = _enc(id_)
     options = []
     if max_score >= 56:
         options += [(0, "56+1"), (1, "56+2")]
@@ -85,24 +98,23 @@ def _build_bonus_quick_reply(score: int, count: int, max_slots: int, max_score: 
 
     checked_labels = {True: "✅", False: "⬜"}
 
-    # 確認按鈕帶當前 bonus
     items = [QuickReplyItem(action=PostbackAction(
-        label="✔️無加成直接算" if bonus == 0 else "✔️確認加成繼續",
-        data=f"confirm|{score}|{count}|{max_slots}|{max_score}|{bonus}",
-        display_text="無進階加成" if bonus == 0 else "確認加成"
+        label="✔️直接計算",
+        data=f"confirm|{eid}|{score}|{count}|{max_slots}|{max_score}|{bonus}",
+        display_text="直接計算"
     ))]
     for bit, label in options:
         checked = bool(bonus & (1 << bit))
         new_bonus = bonus ^ (1 << bit)
         items.append(QuickReplyItem(action=PostbackAction(
             label=f"{checked_labels[checked]}{label}",
-            data=f"bonus|{score}|{count}|{max_slots}|{max_score}|{new_bonus}",
+            data=f"bonus|{eid}|{score}|{count}|{max_slots}|{max_score}|{new_bonus}",
             display_text=f"{checked_labels[checked]}{label}"
         )))
     return QuickReply(items=items)
 
 
-def _build_title_quick_reply(data: dict, score: int, count: int, max_slots: int, max_score: int, bonus: int) -> QuickReply | None:
+def _build_title_quick_reply(id_: str, data: dict, score: int, count: int, max_slots: int, max_score: int, bonus: int) -> QuickReply | None:
     achievable = [
         name
         for _, name, _ in reversed(data["higher_titles"])
@@ -111,10 +123,11 @@ def _build_title_quick_reply(data: dict, score: int, count: int, max_slots: int,
     if not achievable:
         return None
 
+    eid = _enc(id_)
     items = [
         QuickReplyItem(action=PostbackAction(
             label=name,
-            data=f"title|{name}|{score}|{count}|{max_slots}|{max_score}|{bonus}",
+            data=f"title|{eid}|{name}|{score}|{count}|{max_slots}|{max_score}|{bonus}",
             display_text=name
         ))
         for name in achievable
@@ -122,14 +135,10 @@ def _build_title_quick_reply(data: dict, score: int, count: int, max_slots: int,
     return QuickReply(items=items)
 
 
-async def _show_summary_and_titles(score: int, count: int, max_slots: int, max_score: int, bonus: int,
-                                    user_id: str, reply_token: str, api: MessagingApi) -> None:
+async def _show_summary_and_titles(id_: str, score: int, count: int, max_slots: int, max_score: int, bonus: int,
+                                    reply_token: str, api: MessagingApi) -> None:
     """顯示摘要並詢問目標稱號（選完進階加成後呼叫）。"""
-    state = _get_state(user_id)
-    id_ = state.get(KEY_ID) or user_id
-
     data = compute_result(id_, score, count, max_slots, max_score)
-    # 用實際 bonus 重新計算 recommendations
     from calculator import calc_remaining_slots
     remaining = calc_remaining_slots(count, max_slots)
     data["recommendations"] = {
@@ -138,7 +147,7 @@ async def _show_summary_and_titles(score: int, count: int, max_slots: int, max_s
     } if remaining > 0 else {}
 
     summary = format_summary(data)
-    quick_reply = _build_title_quick_reply(data, score, count, max_slots, max_score, bonus)
+    quick_reply = _build_title_quick_reply(id_, data, score, count, max_slots, max_score, bonus)
 
     msg_text = summary
     if quick_reply:
@@ -157,10 +166,9 @@ async def _process_postback(data: str, user_id: str, reply_token: str, api: Mess
     action = parts[0]
 
     if action == "slots":
-        # 選完任務數 → 詢問最高可接分數
-        score, count, max_slots = int(parts[1]), int(parts[2]), int(parts[3])
+        id_, score, count, max_slots = _dec(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
         state[KEY_MAX_SLOTS] = max_slots
-        quick_reply = _build_max_score_quick_reply(score, count, max_slots)
+        quick_reply = _build_max_score_quick_reply(id_, score, count, max_slots)
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(
@@ -170,49 +178,44 @@ async def _process_postback(data: str, user_id: str, reply_token: str, api: Mess
         ))
 
     elif action == "maxscore":
-        # 選完最高分 → 若 ≥ 56 先問進階加成，否則直接顯示摘要
-        score, count, max_slots, max_score = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
+        id_, score, count, max_slots, max_score = _dec(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
         state[KEY_MAX_SCORE] = max_score
 
         if max_score >= 56:
-            quick_reply = _build_bonus_quick_reply(score, count, max_slots, max_score, 0)
+            quick_reply = _build_bonus_quick_reply(id_, score, count, max_slots, max_score, 0)
             await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
                 reply_token=reply_token,
                 messages=[TextMessage(
-                    text=f"✅ 最高可接 {max_score} 分任務\n\n是否有進階加成？（可複選）\n若沒有加成，請直接按「✔️無加成直接算」",
+                    text=f"✅ 最高可接 {max_score} 分任務\n\n是否有進階加成？（可複選）\n選完後按「✔️直接計算」",
                     quick_reply=quick_reply
                 )]
             ))
         else:
-            await _show_summary_and_titles(score, count, max_slots, max_score, 0, user_id, reply_token, api)
+            await _show_summary_and_titles(id_, score, count, max_slots, max_score, 0, reply_token, api)
 
     elif action == "bonus":
-        # 切換進階加成選項（更新按鈕狀態）
-        score, count, max_slots, max_score, bonus = (
-            int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
+        id_, score, count, max_slots, max_score, bonus = (
+            _dec(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5]), int(parts[6])
         )
-        quick_reply = _build_bonus_quick_reply(score, count, max_slots, max_score, bonus)
+        quick_reply = _build_bonus_quick_reply(id_, score, count, max_slots, max_score, bonus)
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(
-                text=f"✅ 最高可接 {max_score} 分任務\n\n是否有進階加成？（可複選）\n若沒有加成，請直接按「✔️無加成直接算」",
+                text=f"✅ 最高可接 {max_score} 分任務\n\n是否有進階加成？（可複選）\n選完後按「✔️直接計算」",
                 quick_reply=quick_reply
             )]
         ))
 
     elif action == "confirm":
-        # 確認進階加成 → 顯示摘要與目標稱號選擇
-        score, count, max_slots, max_score, bonus = (
-            int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
+        id_, score, count, max_slots, max_score, bonus = (
+            _dec(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5]), int(parts[6])
         )
-        await _show_summary_and_titles(score, count, max_slots, max_score, bonus, user_id, reply_token, api)
+        await _show_summary_and_titles(id_, score, count, max_slots, max_score, bonus, reply_token, api)
 
     elif action == "title":
-        # 選完稱號 → 直接計算並顯示推薦
-        target, score, count, max_slots, max_score, bonus = (
-            parts[1], int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5]), int(parts[6])
+        id_, target, score, count, max_slots, max_score, bonus = (
+            _dec(parts[1]), parts[2], int(parts[3]), int(parts[4]), int(parts[5]), int(parts[6]), int(parts[7])
         )
-        id_ = state.get(KEY_ID) or user_id
         data_result = compute_result(id_, score, count, max_slots, max_score)
         gap_entry = next((g for _, n, g in data_result["higher_titles"] if n == target), None)
         combos = recommend_combinations(score, score + gap_entry, data_result["remaining_slots"], bonus, max_score) if gap_entry is not None else None
@@ -262,6 +265,7 @@ async def handle_line_event(event, api: MessagingApi) -> None:
         ))
         return
 
+    # 單筆數字模式
     if text.lstrip("-").isdigit():
         score_input = int(text)
         if score_input <= 0:
@@ -275,9 +279,10 @@ async def handle_line_event(event, api: MessagingApi) -> None:
         scores = state[KEY_SCORES]
         total = sum(scores)
         count = len(scores)
+        id_ = state.get(KEY_ID) or user_id
 
         detail = " + ".join(str(s) for s in scores)
-        quick_reply = _build_slots_quick_reply(total, count)
+        quick_reply = _build_slots_quick_reply(id_, total, count)
         msg_text = (
             f"➕ 已記錄 {score_input} 分\n"
             f"📝 本期累計：{detail} = {total} 分（共 {count} 次）\n\n"
@@ -289,6 +294,7 @@ async def handle_line_event(event, api: MessagingApi) -> None:
         ))
         return
 
+    # 完整格式 {ID} {累計總分} {次數}
     parts = text.split()
     if len(parts) == 3:
         id_, score_str, count_str = parts
@@ -304,7 +310,7 @@ async def handle_line_event(event, api: MessagingApi) -> None:
             return
 
         state[KEY_ID] = id_
-        quick_reply = _build_slots_quick_reply(score, count)
+        quick_reply = _build_slots_quick_reply(id_, score, count)
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(

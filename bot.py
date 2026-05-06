@@ -95,7 +95,7 @@ def _build_bonus_keyboard(score: int, count: int, max_slots: int, max_score: int
         options += [(2, "60+1（61分）"), (3, "60+2（62分）")]
 
     btn_confirm = InlineKeyboardButton(
-        "✔️ 確認加成，繼續" if bonus != 0 else "✔️ 無進階加成，直接計算",
+        "✔️ 直接計算",
         callback_data=f"p_{score}_{count}_{max_slots}_{max_score}_{bonus}"
     )
     buttons = [[btn_confirm]]
@@ -236,7 +236,7 @@ async def handle_callback(update: Update, context) -> None:
             if max_score >= 56:
                 keyboard = _build_bonus_keyboard(score, count, max_slots, max_score, bonus=0)
                 await query.edit_message_text(
-                    f"✅ 最高可接 {max_score} 分任務\n\n是否有進階加成？（可複選）\n若沒有加成，請直接按「✔️ 無進階加成，直接計算」",
+                    f"✅ 最高可接 {max_score} 分任務\n\n是否有進階加成？（可複選）\n選完後按「✔️ 直接計算」",
                     reply_markup=keyboard
                 )
             else:
@@ -247,7 +247,7 @@ async def handle_callback(update: Update, context) -> None:
             score, count, max_slots, max_score, bonus = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
             keyboard = _build_bonus_keyboard(score, count, max_slots, max_score, bonus)
             await query.edit_message_text(
-                f"✅ 最高可接 {max_score} 分任務\n\n是否有進階加成？（可複選）\n若沒有加成，請直接按「✔️ 無進階加成，直接計算」",
+                f"✅ 最高可接 {max_score} 分任務\n\n是否有進階加成？（可複選）\n選完後按「✔️ 直接計算」",
                 reply_markup=keyboard
             )
 
