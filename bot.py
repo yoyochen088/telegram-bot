@@ -7,10 +7,11 @@ bot.py — Bot 主程式
   /reset：清除本期累計紀錄
 
 callback_data 格式：
-  任務數選擇：  s_{score}_{count}_{max_slots}
-  稱號選擇：    t_{score}_{count}_{max_slots}_{title_idx}
-  進階加成確認：b_{score}_{count}_{max_slots}_{title_idx}_{bonus}
-  進階加成切換：x_{score}_{count}_{max_slots}_{title_idx}_{bonus}
+  任務數選擇：    s_{score}_{count}_{max_slots}
+  最高分選擇：    m_{score}_{count}_{max_slots}_{max_score}
+  稱號選擇：      t_{score}_{count}_{max_slots}_{max_score}_{title_idx}
+  進階加成確認：  b_{score}_{count}_{max_slots}_{max_score}_{title_idx}_{bonus}
+  進階加成切換：  x_{score}_{count}_{max_slots}_{max_score}_{title_idx}_{bonus}
 """
 
 import asyncio
@@ -35,9 +36,11 @@ logger = logging.getLogger(__name__)
 KEY_SCORES = "scores"
 KEY_ID = "uid"
 KEY_MAX_SLOTS = "max_slots"
+KEY_MAX_SCORE = "max_score"
 
 TITLE_NAMES = ["無稱號", "青銅花匠", "白銀花匠", "黃金花匠", "大師花匠", "王者花匠"]
 SLOT_OPTIONS = [18, 24]
+MAX_SCORE_OPTIONS = [28, 46, 50, 56, 60]
 
 
 def parse_full(text: str) -> tuple | str:
@@ -66,7 +69,7 @@ def _get_display_name(update: Update) -> str:
 
 
 def _build_slots_keyboard(score: int, count: int) -> InlineKeyboardMarkup:
-    """建立本週任務數選擇按鈕。callback_data: s_{score}_{count}_{max_slots}"""
+    """建立本週任務數選擇按鈕。"""
     buttons = [
         [InlineKeyboardButton(f"📋 {n} 個任務", callback_data=f"s_{score}_{count}_{n}")]
         for n in SLOT_OPTIONS
@@ -74,8 +77,18 @@ def _build_slots_keyboard(score: int, count: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 
-def _build_title_keyboard(data: dict, score: int, count: int, max_slots: int) -> InlineKeyboardMarkup | None:
-    """建立目標稱號選擇按鈕。callback_data: t_{score}_{count}_{max_slots}_{title_idx}"""
+def _build_max_score_keyboard(score: int, count: int, max_slots: int) -> InlineKeyboardMarkup:
+    """建立最高可接分數選擇按鈕。"""
+    labels = {28: "最高 28分", 46: "最高 46分", 50: "最高 50分", 56: "最高 56分", 60: "最高 60分"}
+    buttons = [
+        [InlineKeyboardButton(labels[n], callback_data=f"m_{score}_{count}_{max_slots}_{n}")]
+        for n in MAX_SCORE_OPTIONS
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+
+def _build_title_keyboard(data: dict, score: int, count: int, max_slots: int, max_score: int) -> InlineKeyboardMarkup | None:
+    """建立目標稱號選擇按鈕。"""
     if data["title"] == "王者花匠" or data["remaining_slots"] == 0:
         return None
 
@@ -90,44 +103,34 @@ def _build_title_keyboard(data: dict, score: int, count: int, max_slots: int) ->
     buttons = []
     for name in achievable:
         title_idx = TITLE_NAMES.index(name)
-        cb = f"t_{score}_{count}_{max_slots}_{title_idx}"
+        cb = f"t_{score}_{count}_{max_slots}_{max_score}_{title_idx}"
         buttons.append([InlineKeyboardButton(f"🎯 {name}", callback_data=cb)])
 
     return InlineKeyboardMarkup(buttons)
 
 
-def _build_bonus_keyboard(score: int, count: int, max_slots: int, title_idx: int, bonus: int) -> InlineKeyboardMarkup:
-    """建立進階加成選擇按鈕（4個獨立選項）。
-    bonus 為 4-bit 旗標：bit0=56+1, bit1=56+2, bit2=60+1, bit3=60+2
-    """
-    options = [
-        (0, "56+1（57分）"),
-        (1, "56+2（58分）"),
-        (2, "60+1（61分）"),
-        (3, "60+2（62分）"),
-    ]
+def _build_bonus_keyboard(score: int, count: int, max_slots: int, max_score: int, title_idx: int, bonus: int) -> InlineKeyboardMarkup:
+    """建立進階加成選擇按鈕，依 max_score 決定顯示哪些選項。"""
+    options = []
+    if max_score >= 56:
+        options += [(0, "56+1（57分）"), (1, "56+2（58分）")]
+    if max_score >= 60:
+        options += [(2, "60+1（61分）"), (3, "60+2（62分）")]
+
     btn_confirm = InlineKeyboardButton(
         "✔️ 直接計算",
-        callback_data=f"b_{score}_{count}_{max_slots}_{title_idx}_{bonus}"
+        callback_data=f"b_{score}_{count}_{max_slots}_{max_score}_{title_idx}_{bonus}"
     )
     buttons = [[btn_confirm]]
     for bit, label in options:
         checked = bool(bonus & (1 << bit))
         new_bonus = bonus ^ (1 << bit)
-        cb = f"x_{score}_{count}_{max_slots}_{title_idx}_{new_bonus}"
+        cb = f"x_{score}_{count}_{max_slots}_{max_score}_{title_idx}_{new_bonus}"
         buttons.append([InlineKeyboardButton(
             f"{'✅' if checked else '⬜'} {label}",
             callback_data=cb
         )])
     return InlineKeyboardMarkup(buttons)
-
-
-async def _send_result(update: Update, score: int, count: int, id_: str, context) -> None:
-    """顯示計算摘要，並詢問本週預計任務數。"""
-    await update.message.reply_text(
-        "請選擇本週預計要解的任務數：",
-        reply_markup=_build_slots_keyboard(score, count)
-    )
 
 
 async def handle_help(update: Update, context) -> None:
@@ -138,6 +141,7 @@ async def handle_help(update: Update, context) -> None:
 async def handle_reset(update: Update, context) -> None:
     context.user_data[KEY_SCORES] = []
     context.user_data.pop(KEY_MAX_SLOTS, None)
+    context.user_data.pop(KEY_MAX_SCORE, None)
     await update.message.reply_text("✅ 已清除本期累計紀錄，可以重新開始輸入。")
 
 
@@ -160,14 +164,16 @@ async def handle_message(update: Update, context) -> None:
             scores = user_data[KEY_SCORES]
             total = sum(scores)
             count = len(scores)
-            id_ = user_data.get(KEY_ID, _get_display_name(update))
 
             detail = " + ".join(str(s) for s in scores)
             await update.message.reply_text(
                 f"➕ 已記錄 {score_input} 分\n"
                 f"📝 本期累計：{detail} = {total} 分（共 {count} 次）"
             )
-            await _send_result(update, total, count, id_, context)
+            await update.message.reply_text(
+                "請選擇本週預計要解的任務數：",
+                reply_markup=_build_slots_keyboard(total, count)
+            )
             return
 
         # 完整格式
@@ -178,7 +184,10 @@ async def handle_message(update: Update, context) -> None:
 
         id_, score, count = parsed
         user_data[KEY_ID] = id_
-        await _send_result(update, score, count, id_, context)
+        await update.message.reply_text(
+            "請選擇本週預計要解的任務數：",
+            reply_markup=_build_slots_keyboard(score, count)
+        )
 
     except Exception as e:
         logger.error("handle_message error: %s", e, exc_info=True)
@@ -193,38 +202,60 @@ async def handle_callback(update: Update, context) -> None:
         action = parts[0]
 
         if action == "s":
-            # 選完任務數 → 顯示計算摘要與目標稱號選擇
+            # 選完任務數 → 詢問最高可接分數
             score, count, max_slots = int(parts[1]), int(parts[2]), int(parts[3])
             context.user_data[KEY_MAX_SLOTS] = max_slots
+            await query.edit_message_text(
+                f"✅ 本週預計 {max_slots} 個任務\n\n請選擇你最高能接的加倍任務分數：",
+                reply_markup=_build_max_score_keyboard(score, count, max_slots)
+            )
+
+        elif action == "m":
+            # 選完最高分 → 顯示摘要與目標稱號選擇
+            score, count, max_slots, max_score = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
+            context.user_data[KEY_MAX_SCORE] = max_score
 
             id_ = context.user_data.get(KEY_ID) or (
                 query.from_user.username or query.from_user.first_name or str(query.from_user.id)
             )
-            data = compute_result(id_, score, count, max_slots)
+            data = compute_result(id_, score, count, max_slots, max_score)
             summary = format_summary(data)
-            keyboard = _build_title_keyboard(data, score, count, max_slots)
+            keyboard = _build_title_keyboard(data, score, count, max_slots, max_score)
 
+            await query.edit_message_text(summary)
             if keyboard:
-                await query.edit_message_text(summary)
                 await query.message.reply_text("請選擇本期目標稱號：", reply_markup=keyboard)
-            else:
-                await query.edit_message_text(summary)
 
         elif action == "t":
-            # 選完稱號 → 顯示進階加成選項
-            score, count, max_slots, title_idx = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
-            target = TITLE_NAMES[title_idx]
-            keyboard = _build_bonus_keyboard(score, count, max_slots, title_idx, bonus=0)
-            await query.edit_message_text(
-                f"🎯 目標：{target}\n\n是否有進階加成？（可複選）\n若沒有加成，請直接按「✔️ 直接計算」",
-                reply_markup=keyboard
+            # 選完稱號 → 若 max_score >= 56 詢問進階加成，否則直接計算
+            score, count, max_slots, max_score, title_idx = (
+                int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
             )
+            target = TITLE_NAMES[title_idx]
+
+            if max_score >= 56:
+                keyboard = _build_bonus_keyboard(score, count, max_slots, max_score, title_idx, bonus=0)
+                await query.edit_message_text(
+                    f"🎯 目標：{target}\n\n是否有進階加成？（可複選）\n若沒有加成，請直接按「✔️ 直接計算」",
+                    reply_markup=keyboard
+                )
+            else:
+                # 直接計算，不詢問進階加成
+                id_ = context.user_data.get(KEY_ID) or (
+                    query.from_user.username or query.from_user.first_name or str(query.from_user.id)
+                )
+                data = compute_result(id_, score, count, max_slots, max_score)
+                gap_entry = next((g for _, n, g in data["higher_titles"] if n == target), None)
+                combos = recommend_combinations(score, score + gap_entry, data["remaining_slots"], bonus=0, max_score=max_score) if gap_entry is not None else None
+                await query.edit_message_text(format_recommendation(data, target, combos, bonus=0))
 
         elif action == "x":
-            # 切換進階加成選項（更新按鈕狀態）
-            score, count, max_slots, title_idx, bonus = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
+            # 切換進階加成選項
+            score, count, max_slots, max_score, title_idx, bonus = (
+                int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5]), int(parts[6])
+            )
             target = TITLE_NAMES[title_idx]
-            keyboard = _build_bonus_keyboard(score, count, max_slots, title_idx, bonus)
+            keyboard = _build_bonus_keyboard(score, count, max_slots, max_score, title_idx, bonus)
             await query.edit_message_text(
                 f"🎯 目標：{target}\n\n是否有進階加成？（可複選）\n若沒有加成，請直接按「✔️ 直接計算」",
                 reply_markup=keyboard
@@ -232,23 +263,18 @@ async def handle_callback(update: Update, context) -> None:
 
         elif action == "b":
             # 確認計算
-            score, count, max_slots, title_idx, bonus = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
+            score, count, max_slots, max_score, title_idx, bonus = (
+                int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5]), int(parts[6])
+            )
             target = TITLE_NAMES[title_idx]
 
             id_ = context.user_data.get(KEY_ID) or (
                 query.from_user.username or query.from_user.first_name or str(query.from_user.id)
             )
-
-            data = compute_result(id_, score, count, max_slots)
+            data = compute_result(id_, score, count, max_slots, max_score)
             gap_entry = next((g for _, n, g in data["higher_titles"] if n == target), None)
-            if gap_entry is not None:
-                remaining_slots = data["remaining_slots"]
-                combos = recommend_combinations(score, score + gap_entry, remaining_slots, bonus)
-            else:
-                combos = None
-
-            reply = format_recommendation(data, target, combos, bonus)
-            await query.edit_message_text(reply)
+            combos = recommend_combinations(score, score + gap_entry, data["remaining_slots"], bonus, max_score) if gap_entry is not None else None
+            await query.edit_message_text(format_recommendation(data, target, combos, bonus))
 
     except Exception as e:
         logger.error("handle_callback error: %s", e, exc_info=True)

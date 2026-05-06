@@ -59,6 +59,7 @@ def format_recommendation(result: dict, target: str, combos: list | None, bonus:
     id_ = result["id"]
     score = result["score"]
     max_slots = result.get("max_slots", 24)
+    max_score = result.get("max_score", 60)
     remaining_slots = result["remaining_slots"]
 
     gap = next(
@@ -74,10 +75,11 @@ def format_recommendation(result: dict, target: str, combos: list | None, bonus:
 
     lines = [
         f"👤 ID：{id_}  📊 總分：{score} 分  📌 任務上限：{max_slots} 個  📋 剩餘可接：{remaining_slots} 個",
+        f"🎯 最高可接：{max_score} 分任務",
         "",
         f"🎯 目標：{target}（還差 {gap} 分）{bonus_tag}",
         "",
-        "💡 推薦接法：",
+        "💡 推薦接法（最高分任務最少優先）：",
     ]
 
     if combos is None:

@@ -52,13 +52,19 @@ def recommend_combinations(
     target_score: int,
     remaining_slots: int,
     bonus: int = 0,
+    max_score: int = 60,
 ) -> list[tuple[int, int, int, int]] | None:
     """
     針對單一目標稱號，計算混合任務推薦組合。
-    目標：恰好用完 remaining_slots 個任務，總分 >= need，且總分最低（成本最低）。
+    目標：恰好用完 remaining_slots 個任務，總分 >= need。
+    排序：最高分任務數最少優先（次要：總分最低）。
+
     bonus 為 4-bit 旗標：
       bit0 = 56+1（57分）, bit1 = 56+2（58分）
       bit2 = 60+1（61分）, bit3 = 60+2（62分）
+    max_score：玩家能接的最高加倍任務分數（28/46/50/56/60），
+      超過此分數的任務不納入計算。
+
     回傳 list of (score_a, count_a, score_b, count_b)，
     或 None 表示剩餘名額不足以達成。
     """
@@ -69,15 +75,17 @@ def recommend_combinations(
     # 一般任務（不加倍）
     NORMAL = [14, 21, 23, 25, 28, 30]
 
-    # 加倍任務，依 bonus 旗標決定實際分數
+    # 加倍任務，依 bonus 旗標與 max_score 決定實際可用分數
     doubled_base = [28, 42, 46, 50]
-    if bonus & 1:   doubled_base.append(57)
-    elif bonus & 2: doubled_base.append(58)
-    else:           doubled_base.append(56)
-    if bonus & 4:   doubled_base.append(61)
-    elif bonus & 8: doubled_base.append(62)
-    else:           doubled_base.append(60)
-    DOUBLED = sorted(set(doubled_base))
+    if max_score >= 56:
+        if bonus & 1:       doubled_base.append(57)
+        elif bonus & 2:     doubled_base.append(58)
+        else:               doubled_base.append(56)
+    if max_score >= 60:
+        if bonus & 4:       doubled_base.append(61)
+        elif bonus & 8:     doubled_base.append(62)
+        else:               doubled_base.append(60)
+    DOUBLED = sorted(s for s in set(doubled_base) if s <= max_score + 2)  # +2 容許進階加成
 
     ALL_SCORES = sorted(set(NORMAL + DOUBLED))
 
@@ -87,12 +95,10 @@ def recommend_combinations(
     # 枚舉所有兩種分數的組合 (sa <= sb)，恰好用完 remaining_slots 個任務
     for i, sa in enumerate(ALL_SCORES):
         for sb in ALL_SCORES[i:]:
-            # cb 從 0 到 remaining_slots，ca = remaining_slots - cb
             for cb in range(0, remaining_slots + 1):
                 ca = remaining_slots - cb
                 total = ca * sa + cb * sb
                 if total >= need:
-                    # 當 sa == sb，合併成單一分數
                     if sa == sb:
                         combo = (sa, ca + cb, 0, 0)
                     elif ca == 0:
@@ -108,12 +114,25 @@ def recommend_combinations(
     if not results:
         return None
 
-    # 排序：總分最低（成本最低）優先，次要總次數
-    results.sort(key=lambda c: (c[0]*c[1] + c[2]*c[3], c[1] + c[3]))
+    # 排序：最高分任務數最少優先，次要總分最低
+    # top_score = 本次計算中所有組合裡出現的最高分數
+    all_scores_used = set()
+    for sa, ca, sb, cb in results:
+        if ca > 0: all_scores_used.add(sa)
+        if cb > 0: all_scores_used.add(sb)
+    top_score = max(all_scores_used) if all_scores_used else 0
+
+    def _sort_key(c: tuple) -> tuple:
+        sa, ca, sb, cb = c
+        count_top = (ca if sa == top_score else 0) + (cb if sb == top_score else 0)
+        total = sa * ca + sb * cb
+        return (count_top, total)
+
+    results.sort(key=_sort_key)
     return results
 
 
-def compute_result(id_: str, score: int, count: int, max_slots: int = 24) -> dict:
+def compute_result(id_: str, score: int, count: int, max_slots: int = 24, max_score: int = 60) -> dict:
     """
     整合所有計算，回傳結構化結果 dict：
     {
@@ -121,6 +140,7 @@ def compute_result(id_: str, score: int, count: int, max_slots: int = 24) -> dic
         "score": int,
         "title": str,
         "max_slots": int,
+        "max_score": int,
         "remaining_slots": int,
         "higher_titles": list[tuple[int, str, int]],
         "recommendations": dict[str, list | None],
@@ -132,7 +152,7 @@ def compute_result(id_: str, score: int, count: int, max_slots: int = 24) -> dic
 
     if remaining_slots > 0:
         recommendations = {
-            name: recommend_combinations(score, threshold, remaining_slots)
+            name: recommend_combinations(score, threshold, remaining_slots, max_score=max_score)
             for threshold, name, _ in higher_titles
         }
     else:
@@ -143,6 +163,7 @@ def compute_result(id_: str, score: int, count: int, max_slots: int = 24) -> dic
         "score": score,
         "title": title,
         "max_slots": max_slots,
+        "max_score": max_score,
         "remaining_slots": remaining_slots,
         "higher_titles": higher_titles,
         "recommendations": recommendations,
