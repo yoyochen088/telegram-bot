@@ -77,9 +77,8 @@ def _build_slots_keyboard(score: int, count: int) -> InlineKeyboardMarkup:
 
 
 def _build_max_score_keyboard(score: int, count: int, max_slots: int) -> InlineKeyboardMarkup:
-    labels = {60: "最高 60分", 56: "最高 56分", 50: "最高 50分", 46: "最高 46分", 28: "最高 28分"}
     buttons = [
-        [InlineKeyboardButton(labels[n], callback_data=f"m_{score}_{count}_{max_slots}_{n}")]
+        [InlineKeyboardButton(str(n), callback_data=f"m_{score}_{count}_{max_slots}_{n}")]
         for n in MAX_SCORE_OPTIONS
     ]
     return InlineKeyboardMarkup(buttons)
