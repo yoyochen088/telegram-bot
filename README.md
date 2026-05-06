@@ -9,9 +9,10 @@
 - 單筆累加模式：逐筆輸入分數，Bot 自動累計
 - 完整格式模式：直接指定 ID、累計總分與次數
 - 任務數選擇：每次計算前先選擇本週預計任務數（18 或 24 個）
+- 最高分設定：選擇自己能接的最高加倍任務分數（28 / 46 / 50 / 56 / 60）
 - 稱號判斷：依任務數上限顯示目前稱號、剩餘可接任務數與距各稱號的差距
-- 推薦組合：計算用完剩餘任務名額的最低成本接法
-- 進階加成支援：可選擇 56+1、56+2、60+1、60+2 加成
+- 推薦組合：最高分任務數最少優先排序，幫助玩家盡量減少高難度任務
+- 進階加成支援：最高分 ≥ 56 時可選擇 56+1、56+2、60+1、60+2 加成（自動跳過不適用的步驟）
 - 雙平台：同時支援 Telegram（Inline Keyboard）與 LINE（Quick Reply）
 
 ---
@@ -44,7 +45,9 @@
 |------|------|
 | 一般任務 | 14、21、23、25、28、30 分 |
 | 加倍任務 | 28、42、46、50、56、60 分 |
-| 加倍＋技能 | 57（56+1）、58（56+2）、61（60+1）、62（60+2）分 |
+| 加倍＋進階加成 | 57（56+1）、58（56+2）、61（60+1）、62（60+2）分 |
+
+> 進階加成只適用於 56 分與 60 分任務，選擇最高分 < 56 時不會詢問此步驟。
 
 ### 稱號級距
 | 稱號 | 分數範圍 |
@@ -84,10 +87,11 @@ LINE 平台額外支援：`重置`、`說明`、`help` 文字觸發對應功能�
 ### 互動流程
 
 1. 輸入分數後，Bot 詢問「本週預計要解的任務數」（18 或 24）
-2. 選擇任務數後，Bot 顯示目前累計總分、稱號、本週任務上限與剩餘可接任務數
-3. 點選目標稱號按鈕（Telegram：Inline Keyboard；LINE：Quick Reply）
-4. 選擇是否有進階加成（可複選）
-5. Bot 顯示推薦的最低成本任務組合
+2. 選擇本週最高能接的加倍任務分數（28 / 46 / 50 / 56 / 60）
+3. Bot 顯示目前累計總分、稱號、任務上限與剩餘可接任務數，並列出可達成的目標稱號
+4. 點選目標稱號
+5. 若最高分 ≥ 56，詢問是否有進階加成（可複選）；否則直接跳至步驟 6
+6. Bot 顯示推薦組合（最高分任務數最少優先）
 
 ---
 
@@ -151,8 +155,8 @@ python bot.py
 | `get_title(score)` | 依分數回傳目前稱號 |
 | `get_higher_titles(score)` | 回傳所有更高稱號的門檻與差距 |
 | `calc_remaining_slots(count, max_slots)` | 計算剩餘任務名額（max_slots - count，預設 24） |
-| `recommend_combinations(current, target, slots, bonus)` | 計算最低成本任務推薦組合 |
-| `compute_result(id_, score, count, max_slots)` | 整合所有計算，回傳結構化結果 dict |
+| `recommend_combinations(current, target, slots, bonus, max_score)` | 推薦組合，依最高分任務數最少優先排序 |
+| `compute_result(id_, score, count, max_slots, max_score)` | 整合所有計算，回傳結構化結果 dict |
 
 `compute_result` 回傳格式：
 ```python
@@ -160,7 +164,8 @@ python bot.py
     "id": str,
     "score": int,
     "title": str,
-    "max_slots": int,           # 本週任務上限（18 或 24）
+    "max_slots": int,   # 本週任務上限（18 或 24）
+    "max_score": int,   # 玩家最高可接加倍任務分數（28/46/50/56/60）
     "remaining_slots": int,
     "higher_titles": list[tuple[int, str, int]],  # (門檻, 稱號, 差距)
     "recommendations": dict[str, list | None],
@@ -182,16 +187,17 @@ python bot.py
 Telegram Bot 主程式。
 
 - `handle_message`：處理文字訊息（單筆模式 / 完整模式），輸入後詢問任務數
-- `handle_callback`：處理 Inline Keyboard 回調（任務數選擇、稱號選擇、進階加成切換、確認計算）
+- `handle_callback`：處理 Inline Keyboard 回調（任務數選擇、最高分選擇、稱號選擇、進階加成切換、確認計算）
 - `handle_reset` / `handle_help`：指令處理（help 顯示目前任務數設定）
 - `main`：依環境變數決定 Polling 或 Webhook 模式啟動
 
 Callback data 格式：
 ```
-s_{score}_{count}_{max_slots}                        # 任務數選擇
-t_{score}_{count}_{max_slots}_{title_idx}            # 稱號選擇
-x_{score}_{count}_{max_slots}_{title_idx}_{bonus}    # 進階加成切換
-b_{score}_{count}_{max_slots}_{title_idx}_{bonus}    # 確認計算
+s_{score}_{count}_{max_slots}                                  # 任務數選擇
+m_{score}_{count}_{max_slots}_{max_score}                      # 最高分選擇
+t_{score}_{count}_{max_slots}_{max_score}_{title_idx}          # 稱號選擇
+x_{score}_{count}_{max_slots}_{max_score}_{title_idx}_{bonus}  # 進階加成切換
+b_{score}_{count}_{max_slots}_{max_score}_{title_idx}_{bonus}  # 確認計算
 ```
 
 ### `line_bot.py`
@@ -199,15 +205,16 @@ b_{score}_{count}_{max_slots}_{title_idx}_{bonus}    # 確認計算
 LINE Bot 處理邏輯，使用 `PostbackAction` 讓按鈕點擊不顯示內部指令文字。
 
 - `handle_line_event`：處理 MessageEvent 與 PostbackEvent
-- `_process_postback`：處理 Postback 核心邏輯（任務數選擇、稱號選擇、進階加成切換、確認計算）
+- `_process_postback`：處理 Postback 核心邏輯（任務數選擇、最高分選擇、稱號選擇、進階加成切換、確認計算）
 - `create_line_handler`：建立 aiohttp LINE Webhook 處理器
 
 Postback data 格式：
 ```
 slots|{score}|{count}|{max_slots}
-title|{target}|{score}|{count}|{max_slots}
-bonus|{target}|{score}|{count}|{max_slots}|{bonus}
-calc|{target}|{score}|{count}|{max_slots}|{bonus}
+maxscore|{score}|{count}|{max_slots}|{max_score}
+title|{target}|{score}|{count}|{max_slots}|{max_score}
+bonus|{target}|{score}|{count}|{max_slots}|{max_score}|{bonus}
+calc|{target}|{score}|{count}|{max_slots}|{max_score}|{bonus}
 ```
 
 ---
