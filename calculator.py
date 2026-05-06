@@ -152,7 +152,7 @@ def compute_result(id_: str, score: int, count: int, max_slots: int = 24, max_sc
 
     if remaining_slots > 0:
         recommendations = {
-            name: recommend_combinations(score, threshold, remaining_slots, max_score=max_score)
+            name: recommend_combinations(score, threshold, remaining_slots, bonus=0, max_score=max_score)
             for threshold, name, _ in higher_titles
         }
     else:

@@ -9,9 +9,9 @@ bot.py — Bot 主程式
 callback_data 格式：
   任務數選擇：    s_{score}_{count}_{max_slots}
   最高分選擇：    m_{score}_{count}_{max_slots}_{max_score}
-  稱號選擇：      t_{score}_{count}_{max_slots}_{max_score}_{title_idx}
-  進階加成確認：  b_{score}_{count}_{max_slots}_{max_score}_{title_idx}_{bonus}
-  進階加成切換：  x_{score}_{count}_{max_slots}_{max_score}_{title_idx}_{bonus}
+  進階加成切換：  x_{score}_{count}_{max_slots}_{max_score}_{bonus}
+  進階加成確認：  p_{score}_{count}_{max_slots}_{max_score}_{bonus}
+  稱號選擇：      t_{score}_{count}_{max_slots}_{max_score}_{bonus}_{title_idx}
 """
 
 import asyncio
@@ -40,7 +40,7 @@ KEY_MAX_SCORE = "max_score"
 
 TITLE_NAMES = ["無稱號", "青銅花匠", "白銀花匠", "黃金花匠", "大師花匠", "王者花匠"]
 SLOT_OPTIONS = [18, 24]
-MAX_SCORE_OPTIONS = [28, 46, 50, 56, 60]
+MAX_SCORE_OPTIONS = [60, 56, 50, 46, 28]
 
 
 def parse_full(text: str) -> tuple | str:
@@ -69,7 +69,6 @@ def _get_display_name(update: Update) -> str:
 
 
 def _build_slots_keyboard(score: int, count: int) -> InlineKeyboardMarkup:
-    """建立本週任務數選擇按鈕。"""
     buttons = [
         [InlineKeyboardButton(f"📋 {n} 個任務", callback_data=f"s_{score}_{count}_{n}")]
         for n in SLOT_OPTIONS
@@ -78,8 +77,7 @@ def _build_slots_keyboard(score: int, count: int) -> InlineKeyboardMarkup:
 
 
 def _build_max_score_keyboard(score: int, count: int, max_slots: int) -> InlineKeyboardMarkup:
-    """建立最高可接分數選擇按鈕。"""
-    labels = {28: "最高 28分", 46: "最高 46分", 50: "最高 50分", 56: "最高 56分", 60: "最高 60分"}
+    labels = {60: "最高 60分", 56: "最高 56分", 50: "最高 50分", 46: "最高 46分", 28: "最高 28分"}
     buttons = [
         [InlineKeyboardButton(labels[n], callback_data=f"m_{score}_{count}_{max_slots}_{n}")]
         for n in MAX_SCORE_OPTIONS
@@ -87,8 +85,37 @@ def _build_max_score_keyboard(score: int, count: int, max_slots: int) -> InlineK
     return InlineKeyboardMarkup(buttons)
 
 
-def _build_title_keyboard(data: dict, score: int, count: int, max_slots: int, max_score: int) -> InlineKeyboardMarkup | None:
-    """建立目標稱號選擇按鈕。"""
+def _build_bonus_keyboard(score: int, count: int, max_slots: int, max_score: int, bonus: int) -> InlineKeyboardMarkup:
+    """進階加成選擇，依 max_score 決定顯示哪些選項。"""
+    options = []
+    if max_score >= 56:
+        options += [(0, "56+1（57分）"), (1, "56+2（58分）")]
+    if max_score >= 60:
+        options += [(2, "60+1（61分）"), (3, "60+2（62分）")]
+
+    btn_confirm = InlineKeyboardButton(
+        "✔️ 無進階加成，直接計算",
+        callback_data=f"p_{score}_{count}_{max_slots}_{max_score}_{bonus}"
+    )
+    buttons = [[btn_confirm]]
+    for bit, label in options:
+        checked = bool(bonus & (1 << bit))
+        new_bonus = bonus ^ (1 << bit)
+        cb = f"x_{score}_{count}_{max_slots}_{max_score}_{new_bonus}"
+        buttons.append([InlineKeyboardButton(
+            f"{'✅' if checked else '⬜'} {label}",
+            callback_data=cb
+        )])
+    # 若已勾選任何加成，加一個確認按鈕
+    if bonus != 0:
+        buttons.append([InlineKeyboardButton(
+            "✔️ 確認加成，繼續",
+            callback_data=f"p_{score}_{count}_{max_slots}_{max_score}_{bonus}"
+        )])
+    return InlineKeyboardMarkup(buttons)
+
+
+def _build_title_keyboard(data: dict, score: int, count: int, max_slots: int, max_score: int, bonus: int) -> InlineKeyboardMarkup | None:
     if data["title"] == "王者花匠" or data["remaining_slots"] == 0:
         return None
 
@@ -103,33 +130,9 @@ def _build_title_keyboard(data: dict, score: int, count: int, max_slots: int, ma
     buttons = []
     for name in achievable:
         title_idx = TITLE_NAMES.index(name)
-        cb = f"t_{score}_{count}_{max_slots}_{max_score}_{title_idx}"
+        cb = f"t_{score}_{count}_{max_slots}_{max_score}_{bonus}_{title_idx}"
         buttons.append([InlineKeyboardButton(f"🎯 {name}", callback_data=cb)])
 
-    return InlineKeyboardMarkup(buttons)
-
-
-def _build_bonus_keyboard(score: int, count: int, max_slots: int, max_score: int, title_idx: int, bonus: int) -> InlineKeyboardMarkup:
-    """建立進階加成選擇按鈕，依 max_score 決定顯示哪些選項。"""
-    options = []
-    if max_score >= 56:
-        options += [(0, "56+1（57分）"), (1, "56+2（58分）")]
-    if max_score >= 60:
-        options += [(2, "60+1（61分）"), (3, "60+2（62分）")]
-
-    btn_confirm = InlineKeyboardButton(
-        "✔️ 直接計算",
-        callback_data=f"b_{score}_{count}_{max_slots}_{max_score}_{title_idx}_{bonus}"
-    )
-    buttons = [[btn_confirm]]
-    for bit, label in options:
-        checked = bool(bonus & (1 << bit))
-        new_bonus = bonus ^ (1 << bit)
-        cb = f"x_{score}_{count}_{max_slots}_{max_score}_{title_idx}_{new_bonus}"
-        buttons.append([InlineKeyboardButton(
-            f"{'✅' if checked else '⬜'} {label}",
-            callback_data=cb
-        )])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -150,7 +153,6 @@ async def handle_message(update: Update, context) -> None:
         text = update.message.text.strip()
         user_data = context.user_data
 
-        # 單筆數字模式
         if text.lstrip("-").isdigit():
             score_input = int(text)
             if score_input <= 0:
@@ -176,7 +178,6 @@ async def handle_message(update: Update, context) -> None:
             )
             return
 
-        # 完整格式
         parsed = parse_full(text)
         if isinstance(parsed, str):
             await update.message.reply_text(parsed)
@@ -191,6 +192,28 @@ async def handle_message(update: Update, context) -> None:
 
     except Exception as e:
         logger.error("handle_message error: %s", e, exc_info=True)
+
+
+async def _show_summary_and_titles(query, score: int, count: int, max_slots: int, max_score: int, bonus: int, context) -> None:
+    """顯示摘要並詢問目標稱號（選完進階加成後呼叫）。"""
+    id_ = context.user_data.get(KEY_ID) or (
+        query.from_user.username or query.from_user.first_name or str(query.from_user.id)
+    )
+    data = compute_result(id_, score, count, max_slots, max_score)
+    # 用實際 bonus 重新計算 recommendations
+    from calculator import recommend_combinations as _rc, get_higher_titles, calc_remaining_slots
+    remaining = calc_remaining_slots(count, max_slots)
+    data["recommendations"] = {
+        name: _rc(score, threshold, remaining, bonus=bonus, max_score=max_score)
+        for threshold, name, _ in data["higher_titles"]
+    } if remaining > 0 else {}
+
+    summary = format_summary(data)
+    keyboard = _build_title_keyboard(data, score, count, max_slots, max_score, bonus)
+
+    await query.edit_message_text(summary)
+    if keyboard:
+        await query.message.reply_text("請選擇本期目標稱號：", reply_markup=keyboard)
 
 
 async def handle_callback(update: Update, context) -> None:
@@ -211,59 +234,36 @@ async def handle_callback(update: Update, context) -> None:
             )
 
         elif action == "m":
-            # 選完最高分 → 顯示摘要與目標稱號選擇
+            # 選完最高分 → 若 ≥ 56 先問進階加成，否則直接顯示摘要
             score, count, max_slots, max_score = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
             context.user_data[KEY_MAX_SCORE] = max_score
 
-            id_ = context.user_data.get(KEY_ID) or (
-                query.from_user.username or query.from_user.first_name or str(query.from_user.id)
-            )
-            data = compute_result(id_, score, count, max_slots, max_score)
-            summary = format_summary(data)
-            keyboard = _build_title_keyboard(data, score, count, max_slots, max_score)
-
-            await query.edit_message_text(summary)
-            if keyboard:
-                await query.message.reply_text("請選擇本期目標稱號：", reply_markup=keyboard)
-
-        elif action == "t":
-            # 選完稱號 → 若 max_score >= 56 詢問進階加成，否則直接計算
-            score, count, max_slots, max_score, title_idx = (
-                int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
-            )
-            target = TITLE_NAMES[title_idx]
-
             if max_score >= 56:
-                keyboard = _build_bonus_keyboard(score, count, max_slots, max_score, title_idx, bonus=0)
+                keyboard = _build_bonus_keyboard(score, count, max_slots, max_score, bonus=0)
                 await query.edit_message_text(
-                    f"🎯 目標：{target}\n\n是否有進階加成？（可複選）\n若沒有加成，請直接按「✔️ 直接計算」",
+                    f"✅ 最高可接 {max_score} 分任務\n\n是否有進階加成？（可複選）\n若沒有加成，請直接按「✔️ 無進階加成，直接計算」",
                     reply_markup=keyboard
                 )
             else:
-                # 直接計算，不詢問進階加成
-                id_ = context.user_data.get(KEY_ID) or (
-                    query.from_user.username or query.from_user.first_name or str(query.from_user.id)
-                )
-                data = compute_result(id_, score, count, max_slots, max_score)
-                gap_entry = next((g for _, n, g in data["higher_titles"] if n == target), None)
-                combos = recommend_combinations(score, score + gap_entry, data["remaining_slots"], bonus=0, max_score=max_score) if gap_entry is not None else None
-                await query.edit_message_text(format_recommendation(data, target, combos, bonus=0))
+                await _show_summary_and_titles(query, score, count, max_slots, max_score, bonus=0, context=context)
 
         elif action == "x":
             # 切換進階加成選項
-            score, count, max_slots, max_score, title_idx, bonus = (
-                int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5]), int(parts[6])
-            )
-            target = TITLE_NAMES[title_idx]
-            keyboard = _build_bonus_keyboard(score, count, max_slots, max_score, title_idx, bonus)
+            score, count, max_slots, max_score, bonus = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
+            keyboard = _build_bonus_keyboard(score, count, max_slots, max_score, bonus)
             await query.edit_message_text(
-                f"🎯 目標：{target}\n\n是否有進階加成？（可複選）\n若沒有加成，請直接按「✔️ 直接計算」",
+                f"✅ 最高可接 {max_score} 分任務\n\n是否有進階加成？（可複選）\n若沒有加成，請直接按「✔️ 無進階加成，直接計算」",
                 reply_markup=keyboard
             )
 
-        elif action == "b":
-            # 確認計算
-            score, count, max_slots, max_score, title_idx, bonus = (
+        elif action == "p":
+            # 確認進階加成 → 顯示摘要與目標稱號選擇
+            score, count, max_slots, max_score, bonus = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
+            await _show_summary_and_titles(query, score, count, max_slots, max_score, bonus, context)
+
+        elif action == "t":
+            # 選完稱號 → 直接計算並顯示推薦
+            score, count, max_slots, max_score, bonus, title_idx = (
                 int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5]), int(parts[6])
             )
             target = TITLE_NAMES[title_idx]
