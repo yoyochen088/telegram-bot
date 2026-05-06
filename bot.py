@@ -85,7 +85,9 @@ def _build_max_score_keyboard(score: int, count: int, max_slots: int) -> InlineK
 
 
 def _build_bonus_keyboard(score: int, count: int, max_slots: int, max_score: int, bonus: int) -> InlineKeyboardMarkup:
-    """進階加成選擇，依 max_score 決定顯示哪些選項。"""
+    """進階加成選擇，依 max_score 決定顯示哪些選項。
+    四個選項獨立可複選：56+1、56+2、60+1、60+2 可同時存在。
+    """
     options = []
     if max_score >= 56:
         options += [(0, "56+1（57分）"), (1, "56+2（58分）")]
@@ -93,7 +95,7 @@ def _build_bonus_keyboard(score: int, count: int, max_slots: int, max_score: int
         options += [(2, "60+1（61分）"), (3, "60+2（62分）")]
 
     btn_confirm = InlineKeyboardButton(
-        "✔️ 無進階加成，直接計算",
+        "✔️ 確認加成，繼續" if bonus != 0 else "✔️ 無進階加成，直接計算",
         callback_data=f"p_{score}_{count}_{max_slots}_{max_score}_{bonus}"
     )
     buttons = [[btn_confirm]]
@@ -104,12 +106,6 @@ def _build_bonus_keyboard(score: int, count: int, max_slots: int, max_score: int
         buttons.append([InlineKeyboardButton(
             f"{'✅' if checked else '⬜'} {label}",
             callback_data=cb
-        )])
-    # 若已勾選任何加成，加一個確認按鈕
-    if bonus != 0:
-        buttons.append([InlineKeyboardButton(
-            "✔️ 確認加成，繼續",
-            callback_data=f"p_{score}_{count}_{max_slots}_{max_score}_{bonus}"
         )])
     return InlineKeyboardMarkup(buttons)
 

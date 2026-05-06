@@ -76,15 +76,18 @@ def recommend_combinations(
     NORMAL = [14, 21, 23, 25, 28, 30]
 
     # 加倍任務，依 bonus 旗標與 max_score 決定實際可用分數
+    # 56+1(57) 與 56+2(58) 獨立，可同時存在；60+1(61) 與 60+2(62) 同理
     doubled_base = [28, 42, 46, 50]
     if max_score >= 56:
-        if bonus & 1:       doubled_base.append(57)
-        elif bonus & 2:     doubled_base.append(58)
-        else:               doubled_base.append(56)
+        if bonus & 1:   doubled_base.append(57)   # 56+1
+        if bonus & 2:   doubled_base.append(58)   # 56+2
+        if not (bonus & 1) and not (bonus & 2):
+            doubled_base.append(56)               # 無進階，用原始 56
     if max_score >= 60:
-        if bonus & 4:       doubled_base.append(61)
-        elif bonus & 8:     doubled_base.append(62)
-        else:               doubled_base.append(60)
+        if bonus & 4:   doubled_base.append(61)   # 60+1
+        if bonus & 8:   doubled_base.append(62)   # 60+2
+        if not (bonus & 4) and not (bonus & 8):
+            doubled_base.append(60)               # 無進階，用原始 60
     DOUBLED = sorted(s for s in set(doubled_base) if s <= max_score + 2)  # +2 容許進階加成
 
     ALL_SCORES = sorted(set(NORMAL + DOUBLED))

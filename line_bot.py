@@ -74,7 +74,9 @@ def _build_max_score_quick_reply(score: int, count: int, max_slots: int) -> Quic
 
 
 def _build_bonus_quick_reply(score: int, count: int, max_slots: int, max_score: int, bonus: int) -> QuickReply:
-    """進階加成選擇，依 max_score 決定顯示哪些選項。"""
+    """進階加成選擇，依 max_score 決定顯示哪些選項。
+    四個選項獨立可複選：56+1、56+2、60+1、60+2 可同時存在。
+    """
     options = []
     if max_score >= 56:
         options += [(0, "56+1"), (1, "56+2")]
@@ -83,11 +85,11 @@ def _build_bonus_quick_reply(score: int, count: int, max_slots: int, max_score: 
 
     checked_labels = {True: "✅", False: "⬜"}
 
-    # 無加成直接確認
+    # 確認按鈕帶當前 bonus
     items = [QuickReplyItem(action=PostbackAction(
-        label="✔️無加成直接算",
-        data=f"confirm|{score}|{count}|{max_slots}|{max_score}|0",
-        display_text="無進階加成"
+        label="✔️無加成直接算" if bonus == 0 else "✔️確認加成繼續",
+        data=f"confirm|{score}|{count}|{max_slots}|{max_score}|{bonus}",
+        display_text="無進階加成" if bonus == 0 else "確認加成"
     ))]
     for bit, label in options:
         checked = bool(bonus & (1 << bit))
@@ -96,13 +98,6 @@ def _build_bonus_quick_reply(score: int, count: int, max_slots: int, max_score: 
             label=f"{checked_labels[checked]}{label}",
             data=f"bonus|{score}|{count}|{max_slots}|{max_score}|{new_bonus}",
             display_text=f"{checked_labels[checked]}{label}"
-        )))
-    # 若已勾選任何加成，加確認按鈕
-    if bonus != 0:
-        items.append(QuickReplyItem(action=PostbackAction(
-            label="✔️確認加成繼續",
-            data=f"confirm|{score}|{count}|{max_slots}|{max_score}|{bonus}",
-            display_text="確認加成"
         )))
     return QuickReply(items=items)
 
