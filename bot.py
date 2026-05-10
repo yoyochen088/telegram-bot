@@ -40,7 +40,7 @@ KEY_MAX_SCORE = "max_score"
 
 TITLE_NAMES = ["無稱號", "青銅花匠", "白銀花匠", "黃金花匠", "大師花匠", "王者花匠"]
 SLOT_OPTIONS = [18, 24]
-MAX_SCORE_OPTIONS = [60, 56, 50, 46, 28]
+MAX_SCORE_OPTIONS = [60, 56, 50, 46, 42, 28]
 
 
 def parse_full(text: str) -> tuple | str:
@@ -141,6 +141,27 @@ async def handle_reset(update: Update, context) -> None:
     context.user_data.pop(KEY_MAX_SLOTS, None)
     context.user_data.pop(KEY_MAX_SCORE, None)
     await update.message.reply_text("✅ 已清除本期累計紀錄，可以重新開始輸入。")
+
+
+async def handle_undo(update: Update, context) -> None:
+    scores = context.user_data.get(KEY_SCORES, [])
+    if not scores:
+        await update.message.reply_text("⚠️ 目前沒有可退回的紀錄。")
+        return
+    removed = scores.pop()
+    total = sum(scores)
+    count = len(scores)
+    if scores:
+        detail = " + ".join(str(s) for s in scores)
+        await update.message.reply_text(
+            f"↩️ 已退回 {removed} 分\n"
+            f"📝 本期累計：{detail} = {total} 分（共 {count} 次）"
+        )
+    else:
+        await update.message.reply_text(
+            f"↩️ 已退回 {removed} 分\n"
+            f"📝 本期累計：無紀錄"
+        )
 
 
 async def handle_message(update: Update, context) -> None:
@@ -288,6 +309,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start", handle_help))
     app.add_handler(CommandHandler("help", handle_help))
     app.add_handler(CommandHandler("reset", handle_reset))
+    app.add_handler(CommandHandler("undo", handle_undo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback))
 

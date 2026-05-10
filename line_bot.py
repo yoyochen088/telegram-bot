@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 TITLE_NAMES = ["無稱號", "青銅花匠", "白銀花匠", "黃金花匠", "大師花匠", "王者花匠"]
 SLOT_OPTIONS = [18, 24]
-MAX_SCORE_OPTIONS = [60, 56, 50, 46, 28]
+MAX_SCORE_OPTIONS = [60, 56, 50, 46, 42, 28]
 
 _user_state: dict = {}
 KEY_SCORES = "scores"
@@ -253,6 +253,28 @@ async def handle_line_event(event, api: MessagingApi) -> None:
         await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
             reply_token=reply_token,
             messages=[TextMessage(text="✅ 已清除本期累計紀錄，可以重新開始輸入。")]
+        ))
+        return
+
+    if text in ("/undo", "退回", "undo"):
+        scores = state[KEY_SCORES]
+        if not scores:
+            await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=[TextMessage(text="⚠️ 目前沒有可退回的紀錄。")]
+            ))
+            return
+        removed = scores.pop()
+        total = sum(scores)
+        count = len(scores)
+        if scores:
+            detail = " + ".join(str(s) for s in scores)
+            msg = f"↩️ 已退回 {removed} 分\n📝 本期累計：{detail} = {total} 分（共 {count} 次）"
+        else:
+            msg = f"↩️ 已退回 {removed} 分\n📝 本期累計：無紀錄"
+        await asyncio.to_thread(api.reply_message, ReplyMessageRequest(
+            reply_token=reply_token,
+            messages=[TextMessage(text=msg)]
         ))
         return
 
